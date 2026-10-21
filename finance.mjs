@@ -31,6 +31,40 @@ export function dashboard(state,today=todayBR(),until=previousDay(nextPayday(sta
 }
 export const PAYMENTS=['Pix','Dinheiro','ITAU','CLICK','PASSAÍ','BRADESCO','NUBANK','VR','VA'];
 const isCard=p=>!['Pix','Dinheiro','VR','VA'].includes(p);
+const validCardDay=day=>Number.isInteger(day)&&day>=1&&day<=31;
+const dateOnDay=(month,day)=>monthDate(`${month}-01`,0).slice(0,7)+'-'+String(Math.min(day,new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),0)).getUTCDate())).padStart(2,'0');
+export function cardsForState(state){
+  if(Array.isArray(state.settings.cards))return state.settings.cards;
+  return PAYMENTS.filter(isCard).map(id=>{
+    const e=state.events.find(e=>e.account===id&&['invoice','card'].includes(e.kind)&&e.status!=='void'&&/^\d{4}-\d{2}-\d{2}$/.test(e.date||''));
+    return {id,name:id,dueDay:e?Number(e.date.slice(-2)):null,closingDay:null};
+  });
+}
+export const paymentName=(state,id)=>cardsForState(state).find(c=>c.id===id)?.name||id;
+export const paymentOptions=state=>['Pix','Dinheiro',...cardsForState(state).map(c=>c.id),'VR','VA'];
+export function firstCardDueDate(purchaseDate,card){
+  if(!card||!validCardDay(card.dueDay)||!validCardDay(card.closingDay))throw new Error('Cadastre vencimento e fechamento do cartão em Ajustes.');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(purchaseDate||''))throw new Error('Informe a data da compra.');
+  let month=purchaseDate.slice(0,7),due=dateOnDay(month,card.dueDay);
+  if(due<purchaseDate){month=monthDate(month+'-01',1).slice(0,7);due=dateOnDay(month,card.dueDay);}
+  const closingMonth=card.closingDay<card.dueDay?month:monthDate(month+'-01',-1).slice(0,7);
+  if(purchaseDate>=dateOnDay(closingMonth,card.closingDay))due=dateOnDay(monthDate(month+'-01',1).slice(0,7),card.dueDay);
+  return due;
+}
+const searchable=text=>String(text).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+function categoryName(value){const raw=String(value||'Outros').trim();return ({'alimentacao':'Alimentação','alimentacao fora':'Alimentação','combustivel':'Combustível','vestiario':'Vestuário','vestuario':'Vestuário'})[searchable(raw)]||raw||'Outros';}
+export function groupExpenses(rows){
+  const groups=new Map();
+  for(const row of rows){
+    const category=categoryName(row.category);
+    if(!groups.has(category))groups.set(category,{category,rows:[],mills:0});
+    const g=groups.get(category);g.rows.push(row);g.mills+=Math.round((row.originalAmount??row.amount/100)*1000);
+  }
+  const result=[...groups.values()];for(const g of result)g.amount=Math.floor(g.mills/10);
+  let missing=Math.round(result.reduce((n,g)=>n+g.mills,0)/10)-result.reduce((n,g)=>n+g.amount,0);
+  for(const g of [...result].sort((a,b)=>(b.mills-b.amount*10)-(a.mills-a.amount*10)||a.category.localeCompare(b.category)))if(missing>0){g.amount++;missing--;}
+  return result.sort((a,b)=>b.amount-a.amount||a.category.localeCompare(b.category)).map(({mills,...g})=>g);
+}
 export function expensesForMonth(state,month,person='Todos',search=''){
   const rows=state.history.filter(r=>r.month===month).map(r=>({...r,origin:'source',payment:r.account}));
   for(const p of state.purchases.filter(p=>!p.void)){
@@ -39,8 +73,8 @@ export function expensesForMonth(state,month,person='Todos',search=''){
       for(const [i,e] of parts.entries())if(e.status!=='void'&&e.date.startsWith(month))rows.push({...p,id:e.id,purchaseId:p.id,origin:'purchase',date:e.date,purchaseDate:p.date,amount:e.amount,part:i+1,parts:p.installments,status:e.status});
     }else if(p.date.startsWith(month))rows.push({...p,purchaseId:p.id,origin:'purchase'});
   }
-  const query=search.trim().toLocaleLowerCase('pt-BR');
-  return rows.filter(r=>(person==='Todos'||r.person===person)&&(!query||`${r.description} ${r.category}`.toLocaleLowerCase('pt-BR').includes(query)));
+  const query=searchable(search.trim());
+  return rows.filter(r=>(person==='Todos'||r.person===person)&&(!query||searchable(`${r.description} ${r.category} ${categoryName(r.category)}`).includes(query)));
 }
 export function agendaForMonth(state,month,status='open',person='Todos'){
   return state.events.filter(e=>status==='deferred'?e.status==='deferred':status==='closed'?['paid','covered','void'].includes(e.status):e.status==='planned')
@@ -50,15 +84,17 @@ export function agendaForMonth(state,month,status='open',person='Todos'){
 }
 export function addPurchase(state,input){
   if(!Number.isSafeInteger(input.amount)||input.amount<=0)throw new Error('O valor deve ser maior que zero.');
-  if(!input.description?.trim()||!/^\d{4}-\d{2}-\d{2}$/.test(input.date)||!PAYMENTS.includes(input.payment))throw new Error('Confira descrição, data e pagamento.');
+  if(!input.description?.trim()||!/^\d{4}-\d{2}-\d{2}$/.test(input.date)||![...PAYMENTS,...paymentOptions(state)].includes(input.payment))throw new Error('Confira descrição, data e pagamento.');
   const count=Number(input.installments||1);if(!Number.isInteger(count)||count<1||count>60||count>input.amount)throw new Error('Confira o número de parcelas.');
-  if(isCard(input.payment)&&(!/^\d{4}-\d{2}-\d{2}$/.test(input.dueDate||'')||input.dueDate<input.date))throw new Error('Informe o vencimento da fatura, a partir da data da compra.');
+  const card=cardsForState(state).find(c=>c.id===input.payment);
+  const dueDate=isCard(input.payment)?input.dueDate||firstCardDueDate(input.date,card):undefined;
+  if(isCard(input.payment)&&(!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)||dueDate<input.date))throw new Error('Confira os dias do cartão em Ajustes.');
   if(!isCard(input.payment)&&count!==1)throw new Error('Parcelamento disponível somente para cartão.');
   if(state.purchases.some(p=>p.id===input.id))throw new Error('Este lançamento já foi salvo.');
-  const s=clone(state),p={...input,person:input.person||'JEFFERSON',installments:count,description:input.description.trim(),void:false};s.purchases.push(p);
+  const s=clone(state),p={...input,...(dueDate?{dueDate,billingDay:input.dueDate?Number(dueDate.slice(-2)):card.dueDay}:{}),person:input.person||'JEFFERSON',installments:count,description:input.description.trim(),void:false};s.purchases.push(p);
   if(['VR','VA'].includes(p.payment)){if(s.settings.benefits[p.payment]!==null)s.settings.benefits[p.payment]-=p.amount;}
   else if(!isCard(p.payment))s.settings.balance-=p.amount;
-  else {const v=Math.floor(p.amount/count),rest=p.amount%count;for(let i=0;i<count;i++)s.events.push({id:`purchase-${p.id}-${i}`,purchaseId:p.id,date:monthDate(p.dueDate,i),description:`${p.description}${count>1?` · ${i+1}/${count}`:''}`,amount:v+(i<rest?1:0),direction:'out',status:'planned',confirmed:true,source:'quick',kind:'card',account:p.payment,person:p.person,category:p.category});}
+  else {const v=Math.floor(p.amount/count),rest=p.amount%count;for(let i=0;i<count;i++)s.events.push({id:`purchase-${p.id}-${i}`,purchaseId:p.id,date:dateOnDay(monthDate(p.dueDate,i).slice(0,7),p.billingDay),description:`${p.description}${count>1?` · ${i+1}/${count}`:''}`,amount:v+(i<rest?1:0),direction:'out',status:'planned',confirmed:true,source:'quick',kind:'card',account:p.payment,person:p.person,category:p.category});}
   if(p.person!=='JEFFERSON'&&!['VR','VA'].includes(p.payment))s.events.push({id:`reimbursement-${p.id}`,purchaseId:p.id,date:p.reimbursementDate||'',description:`${p.person} · reembolso de ${p.description}`,amount:p.amount,direction:'in',status:'planned',confirmed:!!p.reimbursementDate,source:'quick',kind:'reimbursement',person:p.person,account:'Conta'});
   return s;
 }
@@ -71,7 +107,11 @@ export function validateState(s){
   const date=(d,blank=false)=>{if(blank&&d==='')return;if(typeof d!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(d)||isNaN(Date.parse(d+'T12:00:00Z')))throw new Error('Data inválida.');};
   cents(s.settings.balance);cents(s.settings.essentials,true);cents(s.settings.safety);cents(s.settings.monthlyLimit,true);if(s.settings.essentials<0||s.settings.safety<0||s.settings.monthlyLimit<0)throw new Error('Provisões devem ser positivas ou zero.');date(s.settings.asOf);
   if(!s.settings.benefits)throw new Error('Benefícios ausentes.');for(const n of Object.values(s.settings.benefits))cents(n,true);
+  if(s.settings.cards!==undefined){
+    if(!Array.isArray(s.settings.cards)||s.settings.cards.length>100)throw new Error('Cadastro de cartões inválido.');
+    const cardIds=new Set();for(const c of s.settings.cards){if(!c||typeof c.id!=='string'||!/^[\p{L}\p{N}][\p{L}\p{N}:_-]{0,99}$/u.test(c.id)||!isCard(c.id)||cardIds.has(c.id)||typeof c.name!=='string'||!c.name.trim()||c.name.length>80||(c.dueDay!==null&&!validCardDay(c.dueDay))||(c.closingDay!==null&&!validCardDay(c.closingDay)))throw new Error('Confira nome, vencimento e fechamento dos cartões.');cardIds.add(c.id);}
+  }
   const ids=new Set();for(const e of s.events){if(typeof e.id!=='string'||ids.has(e.id))throw new Error('Compromisso duplicado.');ids.add(e.id);cents(e.amount);if(e.amount<=0||!['in','out'].includes(e.direction)||!['planned','paid','covered','deferred','void'].includes(e.status))throw new Error('Compromisso inválido.');date(e.date,true);if(e.applied!==undefined)cents(e.applied);if(typeof e.description!=='string'||e.description.length>500)throw new Error('Descrição inválida.');}
-  const purchases=new Set();for(const p of s.purchases){if(typeof p.id!=='string'||purchases.has(p.id))throw new Error('Lançamento duplicado.');purchases.add(p.id);cents(p.amount);date(p.date);if(p.amount<=0||!PAYMENTS.includes(p.payment)||typeof p.description!=='string'||p.description.length>500)throw new Error('Lançamento inválido.');}
+  const purchases=new Set();for(const p of s.purchases){if(typeof p.id!=='string'||purchases.has(p.id))throw new Error('Lançamento duplicado.');purchases.add(p.id);cents(p.amount);date(p.date);if(p.amount<=0||![...PAYMENTS,...paymentOptions(s)].includes(p.payment)||typeof p.description!=='string'||p.description.length>500)throw new Error('Lançamento inválido.');}
   return s;
 }

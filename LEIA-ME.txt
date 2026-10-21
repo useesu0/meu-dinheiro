@@ -20,13 +20,19 @@ Faça backup JSON em Arquivos regularmente e antes de trocar de aparelho.
 
 USO
 Novo gasto: valor, descrição e pagamento; data começa no dia atual.
-Cartão: informe o vencimento da fatura. Parcelamento usa o valor TOTAL da compra.
+Cartão: cadastre nome, dia do vencimento e dia do fechamento em Ajustes > Meus cartões.
+No novo gasto, escolha o cartão e informe o valor TOTAL da compra e as parcelas.
+As datas são calculadas automaticamente. Compras no dia do fechamento entram
+na fatura seguinte. Confira a prévia e ajuste na Agenda se o banco usar outra data.
+Editar o cartão altera apenas novas compras; parcelas antigas mantêm suas datas.
 Escolha a pessoa no campo visível: JEFFERSON, CAMILA ou FATIMA.
 No Histórico, cada parcela nova aparece no mês do vencimento até a última.
 No Histórico e na Agenda, escolha mês e pessoa para consultar os registros.
 O filtro da pessoa não muda o saldo disponível da conta.
 Faturas importadas com mais de uma pessoa ficam em Compartilhado na Agenda.
 No Histórico, os registros da planilha mantêm sua competência original.
+O Histórico agrupa os itens por categoria, com totais por grupo.
+O painel mostra um gráfico por categoria, com filtros de mês e pessoa.
 Pix/dinheiro: sai do saldo agora. Vale: sai do benefício informado.
 Na Agenda, Paguei/Recebi agora altera o saldo; Já incluído no saldo apenas concilia.
 Atualizar manualmente o saldo substitui o saldo atual. Confira a Agenda depois.

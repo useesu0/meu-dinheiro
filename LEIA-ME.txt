@@ -33,6 +33,7 @@ Faturas importadas com mais de uma pessoa ficam em Compartilhado na Agenda.
 No Histórico, os registros da planilha mantêm sua competência original.
 O Histórico agrupa os itens por categoria, com totais por grupo.
 O painel mostra um gráfico por categoria, com filtros de mês e pessoa.
+O visual escuro inclui uma faixa de cartões com despesas no período selecionado.
 Pix/dinheiro: sai do saldo agora. Vale: sai do benefício informado.
 Na Agenda, Paguei/Recebi agora altera o saldo; Já incluído no saldo apenas concilia.
 Atualizar manualmente o saldo substitui o saldo atual. Confira a Agenda depois.
@@ -50,8 +51,8 @@ Sem conferência inicial ou provisão essencial informada, disponível permanece
 Benefícios não entram no caixa. A projeção depende dos dados cadastrados e conferidos.
 
 HOSPEDAGEM E CONTA
-Este pacote não está publicado nem vinculado a uma conta de hospedagem.
-Você escolhe serviço e conta antes de qualquer publicação.
+Publicado no GitHub Pages da conta pessoal useesu0, escolhida pelo usuário.
+Endereço: https://useesu0.github.io/meu-dinheiro/
 Hospede APENAS os arquivos deste pacote. O programa começa vazio.
 NUNCA publique o backup JSON pessoal, sua planilha ou imagens do seu painel.
 O backup inicial é importado pelo seletor de arquivos e permanece no aparelho.

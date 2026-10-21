@@ -31,6 +31,23 @@ export function dashboard(state,today=todayBR(),until=previousDay(nextPayday(sta
 }
 export const PAYMENTS=['Pix','Dinheiro','ITAU','CLICK','PASSAÍ','BRADESCO','NUBANK','VR','VA'];
 const isCard=p=>!['Pix','Dinheiro','VR','VA'].includes(p);
+export function expensesForMonth(state,month,person='Todos',search=''){
+  const rows=state.history.filter(r=>r.month===month).map(r=>({...r,origin:'source',payment:r.account}));
+  for(const p of state.purchases.filter(p=>!p.void)){
+    if(isCard(p.payment)){
+      const parts=state.events.filter(e=>e.purchaseId===p.id&&e.kind==='card'&&e.direction==='out').sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true}));
+      for(const [i,e] of parts.entries())if(e.status!=='void'&&e.date.startsWith(month))rows.push({...p,id:e.id,purchaseId:p.id,origin:'purchase',date:e.date,purchaseDate:p.date,amount:e.amount,part:i+1,parts:p.installments,status:e.status});
+    }else if(p.date.startsWith(month))rows.push({...p,purchaseId:p.id,origin:'purchase'});
+  }
+  const query=search.trim().toLocaleLowerCase('pt-BR');
+  return rows.filter(r=>(person==='Todos'||r.person===person)&&(!query||`${r.description} ${r.category}`.toLocaleLowerCase('pt-BR').includes(query)));
+}
+export function agendaForMonth(state,month,status='open',person='Todos'){
+  return state.events.filter(e=>status==='deferred'?e.status==='deferred':status==='closed'?['paid','covered','void'].includes(e.status):e.status==='planned')
+    .filter(e=>status==='deferred'||!e.date||e.date.startsWith(month))
+    .filter(e=>person==='Todos'||(e.person||'JEFFERSON')===person)
+    .sort((a,b)=>(a.date||'0000').localeCompare(b.date||'0000'));
+}
 export function addPurchase(state,input){
   if(!Number.isSafeInteger(input.amount)||input.amount<=0)throw new Error('O valor deve ser maior que zero.');
   if(!input.description?.trim()||!/^\d{4}-\d{2}-\d{2}$/.test(input.date)||!PAYMENTS.includes(input.payment))throw new Error('Confira descrição, data e pagamento.');

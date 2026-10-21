@@ -19,7 +19,19 @@ O sistema pode remover dados locais por falta de espaço ou limpeza do navegador
 Faça backup JSON em Arquivos regularmente e antes de trocar de aparelho.
 
 USO
-Novo gasto: valor, descrição e pagamento; data começa no dia atual.
+Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.0.0.
+Abas: Início, Transações, botão +, Análise e Ajustes.
+Nova Transação / Dividir: escolha Despesa ou Receita, valor e descrição.
+Receita: Já recebi inclui no saldo; desmarcado guarda apenas uma previsão.
+Dividir esta despesa: pessoa, percentual da sua parte e status do reembolso.
+Pago significa que o reembolso já entrou e será adicionado uma vez ao saldo.
+O status da divisão permite marcar recebido ou reabrir o recebimento.
+O valor integral do cartão permanece comprometido até o pagamento.
+Transações filtra tipo, categoria, pessoa, divisões, mês e busca por texto.
+Análise permite alternar Categoria, Cartão/Banco e Por pessoa.
+Saldo total projetado é receitas confirmadas menos sua parte nas despesas
+do período, sem benefícios. Não equivale ao saldo bancário ou limite para gastar.
+Livre para gastar agora continua usando o cálculo seguro descrito abaixo.
 Cartão: cadastre nome, dia do vencimento e dia do fechamento em Ajustes > Meus cartões.
 No novo gasto, escolha o cartão e informe o valor TOTAL da compra e as parcelas.
 As datas são calculadas automaticamente. Compras no dia do fechamento entram
@@ -32,7 +44,7 @@ O filtro da pessoa não muda o saldo disponível da conta.
 Faturas importadas com mais de uma pessoa ficam em Compartilhado na Agenda.
 No Histórico, os registros da planilha mantêm sua competência original.
 O Histórico agrupa os itens por categoria, com totais por grupo.
-O painel mostra um gráfico por categoria, com filtros de mês e pessoa.
+O gráfico está na aba Análise, com filtros de mês e pessoa.
 O visual escuro inclui uma faixa de cartões com despesas no período selecionado.
 Pix/dinheiro: sai do saldo agora. Vale: sai do benefício informado.
 Na Agenda, Paguei/Recebi agora altera o saldo; Já incluído no saldo apenas concilia.

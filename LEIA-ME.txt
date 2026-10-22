@@ -19,9 +19,9 @@ O sistema pode remover dados locais por falta de espaço ou limpeza do navegador
 Faça backup JSON em Arquivos regularmente e antes de trocar de aparelho.
 
 USO
-Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.3.0.
+Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.3.1.
 Abas: Início, Transações, botão +, Análise e Ajustes.
-Nova Transação / Dividir: escolha Despesa ou Receita, valor e descrição.
+Botão + no rodapé: escolha Despesa ou Receita, valor e descrição.
 Receita: Já recebi inclui no saldo; desmarcado guarda apenas uma previsão.
 Dividir esta despesa: pessoa, percentual da sua parte e status do reembolso.
 Pago significa que o reembolso já entrou e será adicionado uma vez ao saldo.

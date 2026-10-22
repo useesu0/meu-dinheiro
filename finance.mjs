@@ -305,6 +305,24 @@ export function ledgerForMonth(state,month,filters={}){
   }).sort((a,b)=>(b.date||month+'-01').localeCompare(a.date||month+'-01'));
 }
 
+function detailExpenseRows(rows,total){
+  const values=rows.map((row,index)=>{const mills=Math.round((row.originalAmount??row.amount/100)*1000);return {row,index,mills,amount:Math.floor(mills/10)};});
+  let remaining=total-values.reduce((n,r)=>n+r.amount,0);
+  for(const value of [...values].sort((a,b)=>(b.mills-b.amount*10)-(a.mills-a.amount*10)||a.index-b.index))if(remaining>0){value.amount++;remaining--;}
+  return values.map(({row,amount})=>({...row,detailAmount:amount}));
+}
+export function cardExpenseDetails(state,month,cardId){
+  const rows=ledgerForMonth(state,month,{type:'expense'}).filter(r=>r.payment===cardId&&!['VR','VA'].includes(r.payment)),amount=historyTotal(rows);
+  return {title:paymentName(state,cardId),amount,rows:detailExpenseRows(rows,amount)};
+}
+export function analysisGroups(state,month,mode='category',person='JEFFERSON'){
+  if(!['category','bank','person'].includes(mode))throw new Error('Agrupamento de análise inválido.');
+  const rows=ledgerForMonth(state,month,{type:'expense',person:mode==='person'?'Todos':person}).filter(r=>!['VR','VA'].includes(r.payment));
+  let selected;
+  if(mode==='person')selected=rows.flatMap(r=>Object.entries(r.shares).filter(([,amount])=>amount!==0).map(([name,amount])=>({...r,expenseCategory:r.category,category:name,analysisPerson:name,amount,originalAmount:r.isSplit?undefined:r.originalAmount})));
+  else selected=rows.filter(r=>mode!=='bank'||cardsForState(state).some(c=>c.id===r.payment)||r.bankId).map(r=>({...r,expenseCategory:r.category,category:mode==='bank'?r.bank:r.category,analysisPerson:!['Todos','ALL'].includes(person)?person:undefined,amount:['Todos','ALL'].includes(person)?r.amount:r.displayAmount,originalAmount:r.isSplit?undefined:r.originalAmount}));
+  return groupExpenses(selected).map(g=>({...g,rows:detailExpenseRows(g.rows,g.amount)}));
+}
 export function monthOverview(state,month){
   const rows=ledgerForMonth(state,month),own=ledgerForMonth(state,month,{person:'JEFFERSON',type:'expense'}).filter(r=>!['VR','VA'].includes(r.payment));
   const certain=r=>['paid','covered'].includes(r.status)||r.confirmed===true&&!!r.date;

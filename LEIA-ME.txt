@@ -19,7 +19,7 @@ O sistema pode remover dados locais por falta de espaço ou limpeza do navegador
 Faça backup JSON em Arquivos regularmente e antes de trocar de aparelho.
 
 USO
-Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.3.1.
+Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.4.0.
 Abas: Início, Transações, botão +, Análise e Ajustes.
 Botão + no rodapé: escolha Despesa ou Receita, valor e descrição.
 Receita: Já recebi inclui no saldo; desmarcado guarda apenas uma previsão.
@@ -40,7 +40,7 @@ Cada item sai do saldo uma vez. Em cartões importados, somente os itens marcado
 abatem a fatura correspondente; o restante continua pendente na Agenda.
 O rótulo informa o mês da fatura vinculada. A competência da planilha é preservada.
 Pagar uma parcela não paga as seguintes. Empréstimos e despesas adiadas também
-podem ser marcados. Pix, débito, dinheiro e benefícios já saem no lançamento.
+podem ser marcados. Pix, débito e dinheiro já saem no lançamento.
 Itens já pagos não são selecionáveis. Recebimentos e pagamentos têm seleções separadas.
 Na Agenda, abra uma fatura parcial para conferir valor original, itens pagos
 e restante. Pagar restante agora desconta somente o que falta. Reabrir todos
@@ -53,9 +53,15 @@ Compras e acordos da planilha continuam individualmente após a última competê
 Essas consultas são previsões; faturas completas e repasses são conciliados na Agenda.
 Empréstimos permanecem com um lançamento por parcela e não são agrupados.
 Análise permite alternar Categoria, Cartão/Banco e Por pessoa.
+Toque em um grupo de Detalhamento para abrir a tabela de itens e valores.
+O detalhamento respeita o mês e a pessoa escolhidos. Por pessoa mostra cada parte.
 O destaque do painel é o saldo real da conta informado em Ajustes.
 Receitas e despesas seguem o período selecionado e não substituem esse saldo.
 Cartões mostram o total das despesas e parcelas do período para todas as pessoas.
+Toque em um cartão para abrir suas despesas em uma janela flutuante, com valores,
+pessoas, categorias e parcelas. A tabela fecha com o total do cartão selecionado.
+As janelas são consultas: abrir ou fechar não paga nem altera lançamentos.
+Quando necessário, centavos são distribuídos entre os itens para fechar o total.
 Faturas completas não são somadas outra vez às parcelas em Transações quando
 existem os registros detalhados de origem. Permanecem na Agenda e no cálculo de caixa.
 Entradas não confirmadas aparecem separadas e não liberam limite antes de receber.
@@ -74,7 +80,11 @@ No Histórico, os registros da planilha mantêm sua competência original.
 O Histórico agrupa os itens por categoria, com totais por grupo.
 O gráfico está na aba Análise, com filtros de mês e pessoa.
 O visual escuro inclui uma faixa de cartões com despesas no período selecionado.
-Pix/dinheiro: sai do saldo agora. Vale: sai do benefício informado.
+Pix/dinheiro: sai do saldo agora.
+Campos de Refeição e Alimentação foram removidos do painel, dos Ajustes e dos
+meios de pagamento de novos gastos. Esses benefícios restritos não entram no
+orçamento da conta. Registros antigos permanecem compatíveis com o backup.
+Seu saldo e compromissos mantém o gráfico Saldo no tempo.
 Na Agenda, Paguei/Recebi agora altera o saldo; Já incluído no saldo apenas concilia.
 Atualizar manualmente o saldo substitui o saldo atual. Confira a Agenda depois.
 
@@ -116,5 +126,5 @@ O backup inicial é importado pelo seletor de arquivos e permanece no aparelho.
 Hospedagens estáticas HTTPS, inclusive em subpasta, são compatíveis.
 
 VERIFICAÇÃO
-Testes financeiros e navegador em viewport 390x844.
-O uso em iPhone real precisa ser conferido após a escolha da hospedagem HTTPS.
+84 testes aprovados e interface conferida em navegador com largura de celular.
+Ainda não houve teste em iPhone físico.

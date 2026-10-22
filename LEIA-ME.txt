@@ -19,7 +19,7 @@ O sistema pode remover dados locais por falta de espaço ou limpeza do navegador
 Faça backup JSON em Arquivos regularmente e antes de trocar de aparelho.
 
 USO
-Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.1.0.
+Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.2.0.
 Abas: Início, Transações, botão +, Análise e Ajustes.
 Nova Transação / Dividir: escolha Despesa ou Receita, valor e descrição.
 Receita: Já recebi inclui no saldo; desmarcado guarda apenas uma previsão.
@@ -34,6 +34,19 @@ Confira quantidade e total e toque em Recebi agora. O saldo recebe o total uma
 Recebimentos concluídos saem da seleção. Despesas não podem ser recebidas.
 Reembolsos vinculados a várias parcelas são contados uma única vez pelo total.
 Mudar filtros retira da seleção as entradas que deixaram de aparecer.
+Em Transações, toque Selecionar despesas, marque os itens, confira o total
+ou use Selecionar todas e toque Paguei agora. Vale apenas para os itens visíveis.
+Cada item sai do saldo uma vez. Em cartões importados, somente os itens marcados
+abatem a fatura correspondente; o restante continua pendente na Agenda.
+O rótulo informa o mês da fatura vinculada. A competência da planilha é preservada.
+Pagar uma parcela não paga as seguintes. Empréstimos e despesas adiadas também
+podem ser marcados. Pix, débito, dinheiro e benefícios já saem no lançamento.
+Itens já pagos não são selecionáveis. Recebimentos e pagamentos têm seleções separadas.
+Na Agenda, abra uma fatura parcial para conferir valor original, itens pagos
+e restante. Pagar restante agora desconta somente o que falta. Reabrir todos
+os pagamentos dos itens devolve ao saldo somente o valor efetivamente descontado.
+Para editar uma previsão com itens pagos, reabra os pagamentos primeiro.
+Os pagamentos dos itens ficam no backup JSON, sem alterar o histórico original.
 Parcelados têm balão com a parcela e situação: A pagar, Paga ou Adiada.
 Compras e acordos da planilha continuam individualmente após a última competência:
 5/12 em outubro aparece como 6/12 em novembro, até 12/12. Avulsos não se repetem.

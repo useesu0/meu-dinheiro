@@ -86,6 +86,7 @@ export function expensesForMonth(state,month,person='Todos',search=''){
   const expanded=rows.map(r=>{
     if(!['source','source-projection'].includes(r.origin))return r;
     const e=sourcePaymentEvent(state,r),payment=e?.itemPayments?.find(p=>p.key===r.id);
+    if(e?.kind==='fixed'&&e.amount!==r.amount)r={...r,amount:e.amount,originalAmount:e.amount/100};
     return payment?{...r,status:'paid',paidDate:payment.paidDate,paymentEventId:e.id}:e&&['paid','covered'].includes(e.status)?{...r,status:e.status,paidDate:e.paidDate,paymentEventId:e.id}:e?{...r,paymentEventId:e.id}:r;
   }).flatMap(r=>{
     if(!r.split)return [r];
@@ -130,6 +131,32 @@ export function addPurchase(state,input){
 }
 export function settleEvent(state,id,date=todayBR(),alreadyIncluded=false){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||!['planned','deferred'].includes(e.status))throw new Error('Este compromisso já foi conciliado.');e.previousStatus=e.previousStatus||e.status;const applied=alreadyIncluded?0:(e.direction==='in'?e.amount:-outstandingAmount(e));e.status=alreadyIncluded?'covered':'paid';e.paidDate=date;e.applied=(e.applied||0)+applied;s.settings.balance+=applied;return s;}
 export function restoreEvent(state,id){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||!['paid','covered'].includes(e.status)&&!e.itemPayments?.length)throw new Error('Compromisso não conciliado.');s.settings.balance-=e.applied||0;e.status=e.previousStatus||'planned';delete e.applied;delete e.paidDate;delete e.itemPayments;delete e.previousStatus;return s;}
+const editableEvent=e=>e&&['planned','deferred'].includes(e.status)&&!e.itemPayments?.length;
+function recurrenceKey(e){
+  if(!e||e.direction!=='out'||e.purchaseId||['loan','card','invoice','agreement','installments','settlement'].includes(e.kind))return null;
+  if(e.recurrenceId)return 'explicit:'+e.recurrenceId;
+  const match=e.source==='source'&&e.kind==='fixed'&&e.id.match(/^fixed-(?:current|\d{4}-\d{2})-(\d+)$/);return match?'source-fixed:'+match[1]:null;
+}
+const recurrenceMonth=e=>e.source==='source'&&e.kind==='fixed'&&e.id.match(/^fixed-(\d{4}-\d{2})-\d+$/)?.[1]||e.month||e.date?.slice(0,7);
+export function recurrenceForEvent(state,id){
+  const e=state.events.find(e=>e.id===id),key=recurrenceKey(e),month=e&&recurrenceMonth(e);if(!key||!/^\d{4}-\d{2}$/.test(month||''))return null;
+  const targets=state.events.filter(r=>recurrenceKey(r)===key&&(r.person||'JEFFERSON')===(e.person||'JEFFERSON')&&(r.account||'Conta')===(e.account||'Conta')&&recurrenceMonth(r)>=month&&editableEvent(r))
+    .sort((a,b)=>recurrenceMonth(a).localeCompare(recurrenceMonth(b))||a.id.localeCompare(b.id));
+  return {id:key,month,targets,lastMonth:targets.length?recurrenceMonth(targets.at(-1)):month};
+}
+export function editEvent(state,input,scope='single'){
+  const old=state.events.find(e=>e.id===input.id);if(!editableEvent(old))throw new Error('Reabra a conciliação dos pagamentos antes de editar este compromisso.');
+  if(!['single','future'].includes(scope))throw new Error('Escolha alterar só este mês ou a recorrência.');
+  if(!Number.isSafeInteger(input.amount)||input.amount<=0)throw new Error('Informe um valor maior que zero em centavos válidos.');
+  if(typeof input.description!=='string'||!input.description.trim()||input.description.length>500||!['in','out'].includes(input.direction)||!['planned','deferred','void'].includes(input.status)||typeof input.date!=='string'||input.date!==''&&!/^\d{4}-\d{2}-\d{2}$/.test(input.date))throw new Error('Confira descrição, data e situação do movimento.');
+  if(input.direction==='in'&&input.status==='deferred')throw new Error('Use Previsto para uma entrada adiada.');
+  if(old.source==='source'&&old.kind==='fixed'&&input.direction!=='out')throw new Error('Uma conta fixa deve permanecer como saída de dinheiro.');
+  const recurrence=recurrenceForEvent(state,old.id);if(scope==='future'&&(!recurrence||input.direction!=='out'))throw new Error('Este movimento não pertence a uma recorrência de despesas.');
+  const s=clone(state),current=s.events.find(e=>e.id===old.id);
+  Object.assign(current,{description:input.description.trim(),amount:input.amount,date:input.date,direction:input.direction,status:input.status,person:input.person||old.person||'JEFFERSON',confirmed:!!input.confirmed&&!!input.date,review:false});
+  if(scope==='future')for(const target of recurrence.targets)if(target.id!==old.id)s.events.find(e=>e.id===target.id).amount=input.amount;
+  validateState(s);return s;
+}
 export function receiptsForRows(state,rows){
   const ids=new Set(rows.flatMap(r=>[r.eventId,r.reimbursementId]).filter(Boolean));
   return state.events.filter(e=>ids.has(e.id)&&e.direction==='in'&&e.status==='planned');
@@ -231,6 +258,7 @@ export function validateState(s){
     const cardIds=new Set();for(const c of s.settings.cards){if(!c||typeof c.id!=='string'||!/^[\p{L}\p{N}][\p{L}\p{N}:_-]{0,99}$/u.test(c.id)||!isCard(c.id)||cardIds.has(c.id)||typeof c.name!=='string'||!c.name.trim()||c.name.length>80||(c.dueDay!==null&&!validCardDay(c.dueDay))||(c.closingDay!==null&&!validCardDay(c.closingDay)))throw new Error('Confira nome, vencimento e fechamento dos cartões.');cardIds.add(c.id);}
   }
   const ids=new Set();for(const e of s.events){if(typeof e.id!=='string'||ids.has(e.id))throw new Error('Compromisso duplicado.');ids.add(e.id);cents(e.amount);if(e.amount<=0||!['in','out'].includes(e.direction)||!['planned','paid','covered','deferred','void'].includes(e.status))throw new Error('Compromisso inválido.');date(e.date,true);if(e.applied!==undefined)cents(e.applied);if(typeof e.description!=='string'||e.description.length>500)throw new Error('Descrição inválida.');}
+  for(const e of s.events)if(e.recurrenceId!==undefined&&(typeof e.recurrenceId!=='string'||!e.recurrenceId.trim()||e.recurrenceId.length>100))throw new Error('Identificação de recorrência inválida.');
   const paymentKeys=new Set(),paymentMonths=new Map();for(const e of s.events)if(e.itemPayments!==undefined){
     if(e.direction!=='out'||!Array.isArray(e.itemPayments)||e.itemPayments.length>10000||e.status==='void')throw new Error('Pagamentos dos itens inválidos.');
     for(const p of e.itemPayments){

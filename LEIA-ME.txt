@@ -19,7 +19,7 @@ O sistema pode remover dados locais por falta de espaço ou limpeza do navegador
 Faça backup JSON em Arquivos regularmente e antes de trocar de aparelho.
 
 USO
-Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.2.0.
+Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.3.0.
 Abas: Início, Transações, botão +, Análise e Ajustes.
 Nova Transação / Dividir: escolha Despesa ou Receita, valor e descrição.
 Receita: Já recebi inclui no saldo; desmarcado guarda apenas uma previsão.
@@ -77,6 +77,20 @@ O visual escuro inclui uma faixa de cartões com despesas no período selecionad
 Pix/dinheiro: sai do saldo agora. Vale: sai do benefício informado.
 Na Agenda, Paguei/Recebi agora altera o saldo; Já incluído no saldo apenas concilia.
 Atualizar manualmente o saldo substitui o saldo atual. Confira a Agenda depois.
+
+ALTERAR O VALOR DE UMA CONTA MENSAL
+Em Transações ou na Agenda, abra uma conta fixa recorrente, altere o valor
+e toque Salvar previsão. O aplicativo pergunta Onde alterar o valor?:
+- Só este mês: muda somente a ocorrência aberta.
+- Este mês e os próximos: muda os valores pendentes da mesma conta,
+  a partir do mês escolhido; a tela informa quantas ocorrências e até qual mês.
+Meses anteriores, pagos, já incluídos no saldo, cancelados ou com pagamentos
+parciais são preservados. Nas próximas ocorrências muda somente o valor.
+Contas com mesmo nome e pessoas diferentes não são agrupadas por nome.
+Voltar para editar mantém o valor digitado. Fechar cancela sem salvar.
+Mudar a previsão não altera o saldo real; pagar ou receber continua separado.
+As contas fixas importadas já têm vínculo mensal. Movimentos avulsos e parcelas
+não são transformados automaticamente em contas mensais.
 
 BACKUP
 JSON: controle completo, com agenda, histórico, provisões e novos lançamentos.

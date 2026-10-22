@@ -146,8 +146,8 @@ export function ledgerForMonth(state,month,filters={}){
   }
   const sourceMonth=state.history.some(r=>r.month===month);
   for(const e of state.events){
-    if(e.status==='void'||!e.date?.startsWith(month)||e.purchaseId&&e.direction==='out')continue;
-    if(e.direction==='out'&&e.source==='source'&&(['invoice'].includes(e.kind)||sourceMonth&&['fixed','agreement','installments'].includes(e.kind)))continue;
+    if(e.status==='void'||(e.date?e.date.slice(0,7):e.month)!==month||e.purchaseId&&e.direction==='out')continue;
+    if(e.direction==='out'&&e.source==='source'&&sourceMonth&&['invoice','fixed','agreement','installments','settlement'].includes(e.kind))continue;
     const person=e.person||'JEFFERSON';
     rows.push({...e,eventId:e.id,origin:'event',type:e.direction==='in'?'income':'expense',category:e.kind==='reimbursement'?'Reembolso':categoryName(e.category||(e.direction==='in'?'Renda':e.kind==='loan'?'Empréstimos':'Contas')),payment:e.account||'Conta',bank:paymentName(state,e.account||'Conta'),myAmount:person==='JEFFERSON'&&e.direction==='out'?e.amount:0,shares:{[person]:e.amount},isSplit:false});
   }
@@ -158,5 +158,22 @@ export function ledgerForMonth(state,month,filters={}){
       &&(person==='Todos'||person==='ALL'||person==='DIVIDED_ALL'&&r.isSplit||person==='SINGLE_ONLY'&&!r.isSplit&&(r.person||'JEFFERSON')==='JEFFERSON'||Object.hasOwn(r.shares,person))
       &&(!query||searchable(`${r.description} ${r.category} ${r.bank} ${Object.keys(r.shares).join(' ')}`).includes(query));
   }).sort((a,b)=>(b.date||month+'-01').localeCompare(a.date||month+'-01'));
+}
+
+export function monthOverview(state,month){
+  const rows=ledgerForMonth(state,month),own=ledgerForMonth(state,month,{person:'JEFFERSON',type:'expense'}).filter(r=>!['VR','VA'].includes(r.payment));
+  const certain=r=>['paid','covered'].includes(r.status)||r.confirmed===true&&!!r.date;
+  const income=rows.filter(r=>r.type==='income'&&r.kind!=='reimbursement');
+  const source=state.history.filter(r=>r.month===month);
+  return {balance:state.settings.balance,income:income.filter(certain).reduce((n,r)=>n+r.amount,0),pendingIncome:income.filter(r=>!certain(r)).reduce((n,r)=>n+r.amount,0),
+    personalExpenses:historyTotal(own.map(r=>({...r,amount:r.displayAmount,originalAmount:r.isSplit?undefined:r.originalAmount}))),
+    sharedExpenses:historyTotal(rows.filter(r=>r.type==='expense'&&r.person==='Compartilhado')),
+    sourceOwn:historyTotal(source.filter(r=>r.person==='JEFFERSON')),sourceAll:historyTotal(source),sourceCount:source.length,
+    purchasesCount:state.purchases.filter(p=>!p.void&&p.date.startsWith(month)).length};
+}
+export function inspectBackup(payload,fallbackMonth=todayBR().slice(0,7)){
+  const state=clone(payload?.state||payload);validateState(state);
+  const months=[...state.history.map(r=>r.month),...state.purchases.filter(p=>!p.void).map(p=>p.date.slice(0,7))].filter(m=>/^\d{4}-\d{2}$/.test(m||'')).sort();
+  return {state,month:months.at(-1)||fallbackMonth,historyCount:state.history.length,eventsCount:state.events.length,purchasesCount:state.purchases.filter(p=>!p.void).length};
 }
 

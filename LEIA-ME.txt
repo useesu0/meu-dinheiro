@@ -19,7 +19,7 @@ O sistema pode remover dados locais por falta de espaço ou limpeza do navegador
 Faça backup JSON em Arquivos regularmente e antes de trocar de aparelho.
 
 USO
-Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.0.0.
+Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.0.1.
 Abas: Início, Transações, botão +, Análise e Ajustes.
 Nova Transação / Dividir: escolha Despesa ou Receita, valor e descrição.
 Receita: Já recebi inclui no saldo; desmarcado guarda apenas uma previsão.
@@ -29,8 +29,12 @@ O status da divisão permite marcar recebido ou reabrir o recebimento.
 O valor integral do cartão permanece comprometido até o pagamento.
 Transações filtra tipo, categoria, pessoa, divisões, mês e busca por texto.
 Análise permite alternar Categoria, Cartão/Banco e Por pessoa.
-Saldo total projetado é receitas confirmadas menos sua parte nas despesas
-do período, sem benefícios. Não equivale ao saldo bancário ou limite para gastar.
+O destaque do painel é o saldo real da conta informado em Ajustes.
+Receitas e despesas seguem o período selecionado e não substituem esse saldo.
+Cartões mostram o total de todas as pessoas, incluindo faturas e repasses
+do mês que não estão detalhados no histórico daquele mesmo mês.
+Faturas compartilhadas aparecem em Todos/Compartilhado; não são atribuídas
+inteiramente a Jefferson. Entradas não confirmadas aparecem separadas.
 Livre para gastar agora continua usando o cálculo seguro descrito abaixo.
 Cartão: cadastre nome, dia do vencimento e dia do fechamento em Ajustes > Meus cartões.
 No novo gasto, escolha o cartão e informe o valor TOTAL da compra e as parcelas.
@@ -54,6 +58,9 @@ BACKUP
 JSON: controle completo, com agenda, histórico, provisões e novos lançamentos.
 CSV: consulta de despesas em planilha; não é um backup completo.
 Importar um backup guarda a versão anterior no próprio aparelho.
+Antes de importar, o aplicativo mostra quantos registros da planilha,
+compras novas e compromissos o arquivo contém, além do saldo e mês de consulta.
+Importar substitui o controle; um arquivo inicial não traz compras posteriores.
 Recuperar versão local anterior é um auxílio; mantenha o arquivo de backup.
 
 DISPONÍVEL SEGURO

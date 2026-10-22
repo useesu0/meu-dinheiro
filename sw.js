@@ -1,4 +1,4 @@
-const CACHE='meu-dinheiro-v2.0.1';
+const CACHE='meu-dinheiro-v2.1.0';
 // Atualiza a consulta mensal e a conferência de backups, preservando o IndexedDB.
 const FILES=['./','./index.html','./style.css','./app.js','./finance.mjs','./storage.mjs','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES.map(file=>new Request(file,{cache:'reload'})))).then(()=>self.skipWaiting())));

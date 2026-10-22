@@ -67,6 +67,14 @@ export function groupExpenses(rows){
 }
 export function expensesForMonth(state,month,person='Todos',search=''){
   const rows=state.history.filter(r=>r.month===month).map(r=>({...r,origin:'source',payment:r.account}));
+  const lastMonth=state.history.map(r=>r.month).filter(Boolean).sort().at(-1);
+  if(lastMonth&&month>lastMonth){
+    const delta=(Number(month.slice(0,4))-Number(lastMonth.slice(0,4)))*12+Number(month.slice(5,7))-Number(lastMonth.slice(5,7));
+    for(const r of state.history.filter(r=>r.month===lastMonth&&r.type==='Cartão'&&Number.isInteger(r.part)&&Number.isInteger(r.parts)&&r.part>0&&r.parts>1)){
+      const part=r.part+delta;if(part>r.parts)continue;
+      rows.push({...r,id:`projection-${r.id}-${month}`,sourceId:r.id,sourceMonth:lastMonth,month,date:'',origin:'source-projection',kind:'source-installment',payment:r.account,part,status:'planned',sourceStatus:'Aberto',projection:true});
+    }
+  }
   for(const p of state.purchases.filter(p=>!p.void)){
     if(isCard(p.payment)){
       const parts=state.events.filter(e=>e.purchaseId===p.id&&e.kind==='card'&&e.direction==='out').sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true}));
@@ -115,6 +123,29 @@ export function addPurchase(state,input){
 }
 export function settleEvent(state,id,date=todayBR(),alreadyIncluded=false){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||!['planned','deferred'].includes(e.status))throw new Error('Este compromisso já foi conciliado.');e.previousStatus=e.status;e.status=alreadyIncluded?'covered':'paid';e.paidDate=date;e.applied=alreadyIncluded?0:(e.direction==='in'?e.amount:-e.amount);s.settings.balance+=e.applied;return s;}
 export function restoreEvent(state,id){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||!['paid','covered'].includes(e.status))throw new Error('Compromisso não conciliado.');s.settings.balance-=e.applied||0;e.status=e.previousStatus||'planned';delete e.applied;delete e.paidDate;return s;}
+export function receiptsForRows(state,rows){
+  const ids=new Set(rows.flatMap(r=>[r.eventId,r.reimbursementId]).filter(Boolean));
+  return state.events.filter(e=>ids.has(e.id)&&e.direction==='in'&&e.status==='planned');
+}
+export function installmentDetails(state,row){
+  let part=row.part,parts=row.parts;
+  if(!part&&row.kind==='loan'){const match=String(row.description||'').match(/parcela\s+(\d+)\s*\/\s*(\d+)/i);if(match){part=Number(match[1]);parts=Number(match[2]);}}
+  if(!part&&row.kind==='agreement'&&row.source==='source'){
+    const source=state.history.find(r=>String(row.id||'').endsWith('-'+r.row)&&r.account===row.account&&r.description===row.description);
+    if(source){part=source.part;parts=source.parts;}
+  }
+  if(!Number.isInteger(part)||!Number.isInteger(parts)||part<1||parts<=1||part>parts)return ['installments','agreement'].includes(row.kind)?{part:null,parts:null,grouped:true}:null;
+  return {part,parts,grouped:false,settled:['paid','covered'].includes(row.status)||row.sourceStatus==='Pago',deferred:row.status==='deferred',unknown:!row.status&&!row.sourceStatus};
+}
+export function receiveEvents(state,ids,date=todayBR()){
+  if(!Array.isArray(ids)||!ids.length)throw new Error('Selecione pelo menos uma entrada pendente.');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date||'')||isNaN(Date.parse(date+'T12:00:00Z')))throw new Error('Data de recebimento inválida.');
+  const selected=new Set(ids),events=new Map(state.events.map(e=>[e.id,e]));
+  for(const id of selected){const e=events.get(id);if(!e||e.direction!=='in'||e.status!=='planned')throw new Error('Uma entrada da seleção já foi conciliada ou não pode ser recebida. Revise a seleção.');}
+  const s=clone(state);
+  for(const e of s.events)if(selected.has(e.id)){e.previousStatus=e.status;e.status='paid';e.paidDate=date;e.applied=e.amount;s.settings.balance+=e.amount;}
+  validateState(s);return s;
+}
 export function undoPurchase(state,id){const s=clone(state),p=s.purchases.find(p=>p.id===id);if(!p||p.void)throw new Error('Lançamento já desfeito.');const linked=s.events.filter(e=>e.purchaseId===id);if(linked.some(e=>['paid','covered'].includes(e.status)))throw new Error('Desfaça primeiro a conciliação dos pagamentos desta compra na Agenda.');p.void=true;for(const e of linked)e.status='void';if(['Pix','Dinheiro'].includes(p.payment))s.settings.balance+=p.amount;else if(['VR','VA'].includes(p.payment)&&s.settings.benefits[p.payment]!==null)s.settings.benefits[p.payment]+=p.amount;return s;}
 export function validateState(s){
   if(!s||s.version!==1||!s.settings||!Array.isArray(s.events)||!Array.isArray(s.purchases)||!Array.isArray(s.history)||s.events.length>15000||s.purchases.length>10000)throw new Error('Backup ou controle inválido.');
@@ -147,6 +178,7 @@ export function ledgerForMonth(state,month,filters={}){
   const sourceMonth=state.history.some(r=>r.month===month);
   for(const e of state.events){
     if(e.status==='void'||(e.date?e.date.slice(0,7):e.month)!==month||e.purchaseId&&e.direction==='out')continue;
+    if(e.direction==='out'&&e.source==='source'&&['invoice','installments','settlement','agreement'].includes(e.kind)&&state.history.some(r=>r.type==='Cartão'&&r.account===e.account))continue;
     if(e.direction==='out'&&e.source==='source'&&sourceMonth&&['invoice','fixed','agreement','installments','settlement'].includes(e.kind))continue;
     const person=e.person||'JEFFERSON';
     rows.push({...e,eventId:e.id,origin:'event',type:e.direction==='in'?'income':'expense',category:e.kind==='reimbursement'?'Reembolso':categoryName(e.category||(e.direction==='in'?'Renda':e.kind==='loan'?'Empréstimos':'Contas')),payment:e.account||'Conta',bank:paymentName(state,e.account||'Conta'),myAmount:person==='JEFFERSON'&&e.direction==='out'?e.amount:0,shares:{[person]:e.amount},isSplit:false});
@@ -169,7 +201,8 @@ export function monthOverview(state,month){
     personalExpenses:historyTotal(own.map(r=>({...r,amount:r.displayAmount,originalAmount:r.isSplit?undefined:r.originalAmount}))),
     sharedExpenses:historyTotal(rows.filter(r=>r.type==='expense'&&r.person==='Compartilhado')),
     sourceOwn:historyTotal(source.filter(r=>r.person==='JEFFERSON')),sourceAll:historyTotal(source),sourceCount:source.length,
-    purchasesCount:state.purchases.filter(p=>!p.void&&p.date.startsWith(month)).length};
+    purchasesCount:state.purchases.filter(p=>!p.void&&p.date.startsWith(month)).length,
+    projectedCount:expensesForMonth(state,month).filter(r=>r.origin==='source-projection').length};
 }
 export function inspectBackup(payload,fallbackMonth=todayBR().slice(0,7)){
   const state=clone(payload?.state||payload);validateState(state);

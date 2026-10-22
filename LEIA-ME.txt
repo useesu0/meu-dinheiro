@@ -19,7 +19,7 @@ O sistema pode remover dados locais por falta de espaço ou limpeza do navegador
 Faça backup JSON em Arquivos regularmente e antes de trocar de aparelho.
 
 USO
-Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.0.1.
+Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.1.0.
 Abas: Início, Transações, botão +, Análise e Ajustes.
 Nova Transação / Dividir: escolha Despesa ou Receita, valor e descrição.
 Receita: Já recebi inclui no saldo; desmarcado guarda apenas uma previsão.
@@ -28,13 +28,24 @@ Pago significa que o reembolso já entrou e será adicionado uma vez ao saldo.
 O status da divisão permite marcar recebido ou reabrir o recebimento.
 O valor integral do cartão permanece comprometido até o pagamento.
 Transações filtra tipo, categoria, pessoa, divisões, mês e busca por texto.
+Transações > Selecionar recebimentos permite marcar várias entradas pendentes.
+Confira quantidade e total e toque em Recebi agora. O saldo recebe o total uma
+única vez, com data de hoje. Selecionar todas vale apenas para a consulta visível.
+Recebimentos concluídos saem da seleção. Despesas não podem ser recebidas.
+Reembolsos vinculados a várias parcelas são contados uma única vez pelo total.
+Mudar filtros retira da seleção as entradas que deixaram de aparecer.
+Parcelados têm balão com a parcela e situação: A pagar, Paga ou Adiada.
+Compras e acordos da planilha continuam individualmente após a última competência:
+5/12 em outubro aparece como 6/12 em novembro, até 12/12. Avulsos não se repetem.
+Essas consultas são previsões; faturas completas e repasses são conciliados na Agenda.
+Empréstimos permanecem com um lançamento por parcela e não são agrupados.
 Análise permite alternar Categoria, Cartão/Banco e Por pessoa.
 O destaque do painel é o saldo real da conta informado em Ajustes.
 Receitas e despesas seguem o período selecionado e não substituem esse saldo.
-Cartões mostram o total de todas as pessoas, incluindo faturas e repasses
-do mês que não estão detalhados no histórico daquele mesmo mês.
-Faturas compartilhadas aparecem em Todos/Compartilhado; não são atribuídas
-inteiramente a Jefferson. Entradas não confirmadas aparecem separadas.
+Cartões mostram o total das despesas e parcelas do período para todas as pessoas.
+Faturas completas não são somadas outra vez às parcelas em Transações quando
+existem os registros detalhados de origem. Permanecem na Agenda e no cálculo de caixa.
+Entradas não confirmadas aparecem separadas e não liberam limite antes de receber.
 Livre para gastar agora continua usando o cálculo seguro descrito abaixo.
 Cartão: cadastre nome, dia do vencimento e dia do fechamento em Ajustes > Meus cartões.
 No novo gasto, escolha o cartão e informe o valor TOTAL da compra e as parcelas.

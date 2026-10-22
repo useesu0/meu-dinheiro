@@ -1,25 +1,43 @@
-MEU DINHEIRO — APLICATIVO LOCAL PARA IPHONE
+MEU DINHEIRO — IPHONE E WEB — 3.0.0
 
 ARMAZENAMENTO
-Os registros ficam em IndexedDB neste navegador ou aplicativo instalado.
-Sem login, conta conectada, banco na nuvem ou envio dos registros.
-O código usa apenas seus próprios arquivos; não usa contas conectadas ao assistente.
+O banco principal é o Cloud Firestore do projeto pessoal Meu Dinheiro Pessoal,
+na região São Paulo. O login é feito diretamente com Google. As regras do servidor
+permitem somente a conta pessoal autorizada acessar seu próprio controle.
+Cada alteração exige internet e só é confirmada depois da gravação no servidor.
+O programa mantém os dados carregados apenas em memória para exibir as telas;
+não cria uma cópia financeira persistente nova no navegador ou no iPhone.
+A sessão de login pode ficar salva no navegador. Ela é separada dos gastos.
+Os arquivos do programa ficam em cache para abrir a tela de acesso; o banco
+online e as respostas de autenticação não são armazenados pelo service worker.
+Não usa conta NHS, conexão do assistente, ChatGPT ou Google Drive.
+Uma versão anterior do controle é preservada na nuvem a cada alteração.
+Se outro aparelho salvou antes, a alteração antiga é recusada: confira os dados
+atualizados antes de refazer a edição. Não mantenha edições simultâneas abertas.
 
 INSTALAÇÃO NO IPHONE
-1. Depois de escolher a hospedagem e publicar, abra o endereço HTTPS no Safari.
+1. Abra https://useesu0.github.io/meu-dinheiro/ no Safari.
 2. Compartilhar > Adicionar à Tela de Início.
 3. Abra o aplicativo pelo ícone criado.
-4. Importe o arquivo controle-inicial-2026-10-21.json fornecido separadamente.
-5. Em Ajustes, confira seu saldo e a provisão para despesas essenciais.
-6. Na Agenda, confira faturas, transferências e contas já pagas.
+4. Entre com a conta Google pessoal autorizada.
+5. Na primeira vez, use Conferir migração deste aparelho se seus gastos antigos
+   estiverem nele. Confira os totais e confirme o envio para a nuvem.
+   Se os dados mais recentes estão em outro aparelho, faça a migração por ele.
+   Também é possível importar o backup JSON mais recente pelo seletor de arquivo.
+   Não use um backup inicial antigo por cima de lançamentos posteriores.
+6. Em Ajustes, confira seu saldo e a provisão para despesas essenciais.
+7. Na Agenda, confira faturas, transferências e contas já pagas.
 
-Safari e aplicativo instalado podem ter armazenamentos separados. Importe onde vai usar.
-Após o primeiro carregamento completo, o programa pode funcionar offline.
-O sistema pode remover dados locais por falta de espaço ou limpeza do navegador.
-Faça backup JSON em Arquivos regularmente e antes de trocar de aparelho.
+Os registros antigos em IndexedDB não são apagados nem enviados automaticamente.
+Safari e aplicativo instalado podem ter controles antigos separados: escolha o
+que tem os lançamentos mais recentes. Depois da migração, a conta Google acessa
+o mesmo banco online em ambos. O original antigo não recebe novas alterações.
+Sem internet, o programa não carrega nem confirma novas gravações.
+Não limpe os dados do Safari nem remova o aplicativo antes de migrar e conferir.
+Continue exportando backup JSON em Arquivos para uma cópia independente.
 
 USO
-Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.5.0.
+Interface baseada no conceito iGasto fornecido pelo usuário, versão 3.0.0.
 Abas: Início, Transações, botão +, Análise e Ajustes.
 Botão + no rodapé: escolha Despesa ou Receita, valor e descrição.
 Receita: Já recebi inclui no saldo; desmarcado guarda apenas uma previsão.
@@ -60,7 +78,7 @@ parcelas e situações. PDF contém o resumo e todos os itens, com paginação.
 No iPhone, Compartilhar PDF abre o menu do aparelho: escolha WhatsApp e o contato.
 Baixar PDF permite salvar em Arquivos e anexar manualmente como documento.
 O envio é escolhido por você; o aplicativo não envia mensagens automaticamente.
-Os arquivos são gerados no aparelho, inclusive offline após carregar a versão.
+Os arquivos são gerados no aparelho com os dados já carregados da nuvem.
 Relatórios não substituem o backup JSON e não incluem seu saldo bancário.
 Toque em um grupo de Detalhamento para abrir a tabela de itens e valores.
 O detalhamento respeita o mês e a pessoa escolhidos. Por pessoa mostra cada parte.
@@ -119,11 +137,11 @@ não são transformados automaticamente em contas mensais.
 BACKUP
 JSON: controle completo, com agenda, histórico, provisões e novos lançamentos.
 CSV: consulta de despesas em planilha; não é um backup completo.
-Importar um backup guarda a versão anterior no próprio aparelho.
+Importar um backup grava na nuvem e guarda a versão anterior também na nuvem.
 Antes de importar, o aplicativo mostra quantos registros da planilha,
 compras novas e compromissos o arquivo contém, além do saldo e mês de consulta.
 Importar substitui o controle; um arquivo inicial não traz compras posteriores.
-Recuperar versão local anterior é um auxílio; mantenha o arquivo de backup.
+Recuperar versão anterior da nuvem é um auxílio; mantenha o arquivo de backup.
 
 DISPONÍVEL SEGURO
 Usa o menor saldo previsto até o próximo salário, descontando dívidas adiadas,
@@ -136,11 +154,16 @@ Publicado no GitHub Pages da conta pessoal useesu0, escolhida pelo usuário.
 Endereço: https://useesu0.github.io/meu-dinheiro/
 Hospede APENAS os arquivos deste pacote. O programa começa vazio.
 NUNCA publique o backup JSON pessoal, sua planilha ou imagens do seu painel.
-O backup inicial é importado pelo seletor de arquivos e permanece no aparelho.
+O backup é escolhido no aparelho e enviado à nuvem somente após conferência.
 Hospedagens estáticas HTTPS, inclusive em subpasta, são compatíveis.
+Firebase configurado no plano Spark, sem conta de faturamento ou serviços pagos.
+O uso está sujeito às cotas gratuitas; ao atingir limites, pode falhar até renovar.
+O login Google usa Firebase Authentication; os dados financeiros usam Firestore.
 
 VERIFICAÇÃO
-92 testes aprovados e interface conferida em navegador com largura de celular.
+Os testes cobrem os cálculos financeiros, transações, conflitos, tentativas
+repetidas, integridade dos fragmentos, falhas de conexão e mudança de sessão.
 Ainda não houve teste em iPhone físico.
 ExcelJS 4.4.0 e jsPDF 4.2.1 acompanham o pacote local; licenças em
 THIRD-PARTY-LICENSES.txt. Não carregam bibliotecas externas para gerar relatórios.
+Firebase JS SDK 13.1.0 acompanha o pacote; a autenticação comunica-se com Google.

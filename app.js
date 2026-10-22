@@ -1,6 +1,9 @@
 import {clone,todayBR,money,parseMoney,monthDate,nextPayday,previousDay,dashboard,addPurchase,settleEvent,restoreEvent,undoPurchase,validateState,PAYMENTS,historyTotal,expensesForMonth,agendaForMonth,cardsForState,paymentName,paymentOptions,groupExpenses,categoryName,ledgerForMonth,addIncome,monthOverview,inspectBackup,receiptsForRows,receiveEvents,installmentDetails,paymentsForRows,payExpenses,outstandingAmount,itemPaidTotal,editEvent,recurrenceForEvent,cardExpenseDetails,analysisGroups} from './finance.mjs';
 import {readControl,writeControl,previousControl} from './storage.mjs';
+import {buildAnalysisReport,excelReport,pdfReport,reportFilename,reportNote} from './reports.mjs';
+import {setCardArchived} from './finance.mjs';
 let pendingImport=null,pendingEventEdit=null,receivingSelection=false,payingSelection=false;
+let pendingReport=null,cardGesture=null;
 const receiptSelection=new Set();
 let paymentCandidates=new Map();
 
@@ -15,8 +18,17 @@ const currencyInput=n=>n===null||n===undefined?'':(n/100).toFixed(2).replace('.'
 function cardSettings(){
  return `<section class="card" id="cards-settings"><div class="row-head"><h2>Meus cartões</h2><button class="btn smallbtn" data-action="new-card">Adicionar cartão</button></div>
  <p class="help">Cadastre os dias uma vez. As próximas compras usam esse calendário automaticamente.</p>
- ${cardsForState(state()).map(c=>`<div class="listrow"><div class="body"><strong>${h(c.name)}</strong><span class="small muted">Vence: ${c.dueDay?'dia '+c.dueDay:'informar'} · Fecha: ${c.closingDay?'dia '+c.closingDay:'informar'}</span></div><button class="textbtn" data-action="edit-card" data-id="${h(c.id)}" aria-label="Editar cartão ${h(c.name)}">Editar</button></div>`).join('')||'<p class="empty">Adicione seu primeiro cartão.</p>'}
+ <p class="help">Deslize um cartão para a esquerda para excluir ou toque em •••.</p>
+ ${cardsForState(state()).map(c=>`<div class="card-swipe" data-card-id="${h(c.id)}"><button class="card-delete-action" data-action="remove-card" data-id="${h(c.id)}" aria-label="Excluir cartão ${h(c.name)}" tabindex="-1" hidden>Excluir</button><div class="listrow card-swipe-front"><div class="body"><strong>${h(c.name)}</strong><span class="small muted">Vence: ${c.dueDay?'dia '+c.dueDay:'informar'} · Fecha: ${c.closingDay?'dia '+c.closingDay:'informar'}</span></div><button class="textbtn" data-action="edit-card" data-id="${h(c.id)}" aria-label="Editar cartão ${h(c.name)}">Editar</button><button class="card-options" data-action="card-options" aria-expanded="false" aria-label="Opções do cartão ${h(c.name)}">•••</button></div></div>`).join('')||'<p class="empty">Adicione seu primeiro cartão.</p>'}
+ ${cardsForState(state(),{includeArchived:true}).some(c=>c.archived)?`<details class="removed-cards"><summary>Cartões excluídos</summary>${cardsForState(state(),{includeArchived:true}).filter(c=>c.archived).map(c=>`<div class="listrow"><strong class="body">${h(c.name)}</strong><button class="textbtn" data-action="restore-card" data-id="${h(c.id)}" aria-label="Restaurar cartão ${h(c.name)}">Restaurar</button></div>`).join('')}</details>`:''}
  <p class="help">Compras no dia do fechamento entram na fatura seguinte. Os dias podem variar no banco; confira a prévia e ajuste um movimento na Agenda quando necessário. Alterações no cadastro valem para novas compras.</p></section>`;
+}
+function revealCardActions(row,open){
+ document.querySelectorAll('.card-swipe').forEach(el=>{const active=el===row&&open;el.classList.toggle('actions-open',active);const button=el.querySelector('.card-delete-action');button.hidden=!active;button.tabIndex=active?0:-1;el.querySelector('.card-options').setAttribute('aria-expanded',String(active));});
+}
+function removeCardModal(id){
+ const card=cardsForState(state()).find(c=>c.id===id);if(!card)return;
+ modal('Excluir cartão?',`<h3>${h(card.name)}</h3><p>O cartão sairá da lista e das opções de novas compras. As despesas, parcelas, faturas e pagamentos existentes serão mantidos no controle.</p><p class="help">Você pode restaurá-lo em Ajustes → Cartões excluídos.</p><button class="btn danger full" data-action="confirm-remove-card" data-id="${h(id)}">Excluir cartão</button><button class="textbtn full" data-action="close">Cancelar</button>`);
 }
 function cardModal(id){
  const c=cardsForState(state()).find(c=>c.id===id)||{id:crypto.randomUUID(),name:'',dueDay:null,closingDay:null};
@@ -71,7 +83,7 @@ function home(){
  ${cardOverview(s)}
  <section class="split-summary"><div class="row-head"><h2>${icon('users')} Resumo de divisões</h2><span class="small muted">${pending.length} ${pending.length===1?'pendente':'pendentes'}</span></div><div class="row-head"><span>A receber de outras pessoas:</span><strong class="positive">${money(pending.reduce((n,e)=>n+e.amount,0))}</strong></div><p>Acertos até ${dateText(previousDay(monthDate(historyMonth+'-01',2)))} e sem data · recebimentos separados dos pagamentos.</p></section>
  <div class="row-head recent-heading"><h2>Últimas transações</h2><button class="textbtn" data-action="nav" data-tab="history">Ver todas</button></div><div class="transaction-list">${rows.slice(0,4).map(transactionCard).join('')||'<p class="empty">Nenhuma transação neste mês.</p>'}</div>
- <details class="financial-details"><summary>Seu saldo e compromissos</summary><div class="row-head"><span>Saldo real da conta</span><strong class="${s.settings.balance<0?'negative':''}">${money(s.settings.balance)}</strong></div><div class="row-head"><span>Dívidas adiadas · reservadas</span><strong class="negative">${money(d.deferred)}</strong></div><div class="row-head"><span>Limite para esta semana</span><strong>${money(d.weekly)}</strong></div><div class="row-head"><span>Essenciais ainda não cadastrados</span><strong>${money(d.essentials)}</strong></div><button class="btn secondary full" data-action="nav" data-tab="agenda">Abrir agenda de pagamentos</button><p class="help">O saldo em destaque é o saldo real informado. As despesas do período incluem meus compromissos identificados; faturas compartilhadas ficam indicadas separadamente. O livre para gastar considera o caixa, todas as pessoas, parcelas futuras e provisões.</p><h3>Saldo no tempo</h3>${chart(s)}<p class="help">Entradas sem confirmação não liberam dinheiro para gastar.</p></details><p class="local-footnote">${icon('shield')} Desenvolvido por JLC • 2026 • 2.4.0</p>`;
+ <details class="financial-details"><summary>Seu saldo e compromissos</summary><div class="row-head"><span>Saldo real da conta</span><strong class="${s.settings.balance<0?'negative':''}">${money(s.settings.balance)}</strong></div><div class="row-head"><span>Dívidas adiadas · reservadas</span><strong class="negative">${money(d.deferred)}</strong></div><div class="row-head"><span>Limite para esta semana</span><strong>${money(d.weekly)}</strong></div><div class="row-head"><span>Essenciais ainda não cadastrados</span><strong>${money(d.essentials)}</strong></div><button class="btn secondary full" data-action="nav" data-tab="agenda">Abrir agenda de pagamentos</button><p class="help">O saldo em destaque é o saldo real informado. As despesas do período incluem meus compromissos identificados; faturas compartilhadas ficam indicadas separadamente. O livre para gastar considera o caixa, todas as pessoas, parcelas futuras e provisões.</p><h3>Saldo no tempo</h3>${chart(s)}<p class="help">Entradas sem confirmação não liberam dinheiro para gastar.</p></details><p class="local-footnote">${icon('shield')} Desenvolvido por JLC • 2026 • 2.5.0</p>`;
 }
 const categoryMeta=value=>({
  'Alimentação':['food','#f59e0b'],'Mercado':['food','#f59e0b'],'Transporte':['car','#3b82f6'],'Combustível':['car','#3b82f6'],'Saúde':['heart','#f43f5e'],'Moradia':['home','#6366f1'],'Casa':['home','#6366f1'],'Lazer':['gift','#a855f7'],'Educação':['list','#14b8a6'],'Escola':['list','#14b8a6'],'Renda':['wallet','#10b981'],'Reembolso':['users','#bf5af2']
@@ -124,6 +136,7 @@ function analytics(){
  const total=groups.reduce((n,g)=>n+g.amount,0),title=analyticsMode==='category'?'Gastos por categoria':analyticsMode==='bank'?'Gastos por cartão / banco':'Despesas por pessoa',positive=groups.filter(g=>g.amount>0),circle=2*Math.PI*72;let offset=0;
  const arcs=positive.map((g,i)=>{const size=g.amount/positive.reduce((n,v)=>n+v.amount,0)*circle,result=`<circle cx="110" cy="110" r="72" fill="none" stroke="${chartColors[i%chartColors.length]}" stroke-width="32" stroke-dasharray="${size} ${circle-size}" stroke-dashoffset="${-offset}" transform="rotate(-90 110 110)"><title>${h(g.category)}: ${money(g.amount)}</title></circle>`;offset+=size;return result;}).join('');
  return `<div class="page-head"><div><h1>Análise e divisões</h1><p class="muted">Distribuição de gastos e valores divididos</p></div></div><div class="segmented">${[['category','Categoria'],['bank','Cartão/Banco'],['person','Por pessoa']].map(([value,label])=>`<button data-action="analytics-mode" data-value="${value}" class="${analyticsMode===value?'selected':''}" aria-pressed="${analyticsMode===value}">${label}</button>`).join('')}</div><div class="analysis-filters form-grid"><label>Mês<input type="month" id="home-month" aria-label="Mês da análise" value="${historyMonth}"></label>${analyticsMode!=='person'?`<label>Pessoa<select id="home-person" aria-label="Pessoa da análise">${personOptions(homePerson,true)}</select></label>`:''}</div>
+ <div class="analysis-export"><button class="btn secondary" data-action="analysis-excel">${icon('download')} Excel (.xlsx)</button><button class="btn secondary" data-action="analysis-pdf">${icon('phone')} PDF / WhatsApp</button></div><p class="help report-filter-note">Relatórios com o mês, a pessoa e o agrupamento selecionados acima.</p>
  <section class="card analysis-chart"><h2 class="eyebrow">${title}</h2><svg viewBox="0 0 220 220" class="analysis-donut" role="img" aria-label="${title}. Total: ${money(total)}"><circle cx="110" cy="110" r="72" fill="none" stroke="#3a3a3c" stroke-width="32"/>${arcs}<text x="110" y="105" text-anchor="middle" class="donut-label">Total</text><text x="110" y="126" text-anchor="middle" class="donut-total">${money(total)}</text></svg></section>
  <section class="card analysis-breakdown"><h2 class="eyebrow">Detalhamento</h2>${groups.map((g,i)=>`<button class="breakdown-item" data-action="analysis-detail" data-name="${h(g.category)}" aria-haspopup="dialog" aria-label="Ver itens de ${h(g.category)}"><div class="row-head"><span><i style="background:${chartColors[i%chartColors.length]}"></i>${h(g.category)}</span><b>${money(g.amount)}</b></div><div class="bar"><i style="width:${total>0?Math.max(0,g.amount/total*100):0}%;background:${chartColors[i%chartColors.length]}"></i></div><small>${total>0?(g.amount/total*100).toLocaleString('pt-BR',{maximumFractionDigits:1}):0}% do total</small></button>`).join('')||'<p class="empty">Nenhuma despesa neste período.</p>'}</section><p class="help">Toque em um grupo para ver seus itens e valores. Por pessoa considera a parte de cada participante; o limite para gastar continua considerando todos os compromissos.</p>`;
 }
@@ -153,7 +166,7 @@ function modal(title,body){
  document.querySelector('#modal-root').innerHTML=`<div class="sheet-overlay"><section class="sheet" role="dialog" aria-modal="true" aria-label="${h(title)}"><div class="sheet-head ${transaction?'transaction-sheet-head':''}">${transaction?'<button class="textbtn" data-action="close">Cancelar</button>':''}<h2>${h(title)}</h2>${transaction?'<button class="textbtn" type="submit" form="purchase-form">Salvar</button>':'<button class="close" data-action="close" aria-label="Fechar">×</button>'}</div>${body}</section></div>`;
  document.body.style.overflow='hidden';
 }
-function closeModal(){pendingImport=null;pendingEventEdit=null;document.querySelector('#modal-root').innerHTML='';document.body.style.overflow='';}
+function closeModal(){pendingImport=null;pendingEventEdit=null;pendingReport=null;document.querySelector('#modal-root').innerHTML='';document.body.style.overflow='';}
 function purchaseModal(){
  modalType='expense';const cards=cardsForState(state());
  modal('Nova Transação',`<form id="purchase-form" data-type="expense"><div class="segmented modal-type"><button type="button" data-action="modal-type" data-value="expense" class="expense selected" aria-pressed="true">Despesa</button><button type="button" data-action="modal-type" data-value="income" class="income" aria-pressed="false">Receita</button></div>
@@ -210,6 +223,30 @@ async function exportCSV(){
  for(const r of state().purchases.filter(p=>!p.void))rows.push(['Aplicativo',r.date,r.person,r.description,r.category,paymentName(state(),r.bankId||r.payment),currencyInput(r.amount),r.split?.person||'',r.split?currencyInput(r.split.myAmount):'',r.split?currencyInput(r.split.otherAmount):'']);
  await exportFile('meus-gastos-'+todayBR()+'.csv','\ufeff'+rows.map(r=>r.map(cell).join(';')).join('\r\n'),'text/csv;charset=utf-8');
 }
+async function prepareAnalysisReport(format){
+ const report=buildAnalysisReport(state(),historyMonth,analyticsMode,homePerson),isPDF=format==='pdf';
+ const bytes=isPDF?pdfReport(report,window.jspdf.jsPDF):await excelReport(report,window.ExcelJS);
+ const type=isPDF?'application/pdf':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',name=reportFilename(report,format),file=new File([bytes],name,{type});
+ const canShare=isPDF&&typeof navigator.share==='function'&&navigator.canShare?.({files:[file]});
+ modal('Relatório filtrado',`<p class="detail-context">${h(report.period)} · ${h(report.person)} · ${h(report.grouping)}</p><div class="expense-detail-total"><span>${report.rows.length} ${report.rows.length===1?'item':'itens'}</span><strong>${money(report.total)}</strong></div><div class="report-preview">${report.groups.map(g=>`<div class="row-head"><span>${h(g.name)}</span><strong>${money(g.amount)}</strong></div>`).join('')||'<p class="empty">Nenhuma despesa nesses filtros.</p>'}</div><p class="help">${h(reportNote)}</p>${isPDF?`<p class="help">O PDF contém o resumo e todos os itens deste filtro. ${canShare?'Toque em Compartilhar PDF e escolha o WhatsApp e o contato no menu do iPhone.':'Baixe o PDF em Arquivos e anexe-o como documento no WhatsApp.'}</p>${canShare?'<button class="btn full" data-action="share-analysis-pdf">Compartilhar PDF</button>':''}`:'<p class="help">O Excel contém as abas Resumo e Itens, com valores numéricos e totais.</p>'}<button class="btn ${canShare?'secondary ':''}full" data-action="download-analysis-report">${isPDF?'Baixar PDF':'Salvar Excel (.xlsx)'}</button><p class="small muted report-filename">${h(name)}</p>`);
+ pendingReport={file,name};
+}
+function downloadAnalysisReport(){
+ if(!pendingReport)throw new Error('Prepare o relatório novamente.');
+ const url=URL.createObjectURL(pendingReport.file),a=document.createElement('a');a.href=url;a.download=pendingReport.name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);notify('Relatório preparado. Salve o arquivo no aparelho.');
+}
+
+document.addEventListener('pointerdown',ev=>{
+ const row=ev.target.closest('.card-swipe-front');if(!row||ev.button!==0||ev.target.closest('button'))return;
+ cardGesture={row:row.closest('.card-swipe'),x:ev.clientX,y:ev.clientY,pointerId:ev.pointerId};
+});
+document.addEventListener('pointermove',ev=>{
+ if(!cardGesture||cardGesture.pointerId!==ev.pointerId)return;
+ const dx=ev.clientX-cardGesture.x,dy=ev.clientY-cardGesture.y;
+ if(Math.abs(dy)>15&&Math.abs(dy)>Math.abs(dx)){cardGesture=null;return;}
+ if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)*1.3){revealCardActions(cardGesture.row,dx<0);cardGesture=null;}
+});
+document.addEventListener('pointerup',()=>{cardGesture=null;});document.addEventListener('pointercancel',()=>{cardGesture=null;});
 document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-action]');if(!b)return;const action=b.dataset.action;try{
  if(action==='nav'){if(b.dataset.tab==='new')purchaseModal();else{if(b.dataset.tab!=='history'){receivingSelection=false;payingSelection=false;receiptSelection.clear();}tab=b.dataset.tab;render();document.querySelector('#app-viewport').scrollTo({top:0,behavior:'instant'});}}
  else if(['toggle-receipt-selection','toggle-payment-selection','cancel-selection'].includes(action)){
@@ -233,6 +270,16 @@ document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-ac
  else if(action==='analytics-mode'){analyticsMode=b.dataset.value;render();}
  else if(action==='card-expenses')cardExpensesModal(b.dataset.id);
  else if(action==='analysis-detail')analysisDetailModal(b.dataset.name);
+ else if(action==='analysis-excel'||action==='analysis-pdf'){b.disabled=true;try{await prepareAnalysisReport(action==='analysis-pdf'?'pdf':'xlsx');}finally{b.disabled=false;}}
+ else if(action==='download-analysis-report')downloadAnalysisReport();
+ else if(action==='share-analysis-pdf'){
+   if(!pendingReport)throw new Error('Prepare o relatório novamente.');b.disabled=true;
+   try{await navigator.share({files:[pendingReport.file],title:'Relatório de despesas'});}catch(e){if(e.name!=='AbortError')notify('Não foi possível compartilhar. Use Baixar PDF e anexe pelo WhatsApp.',true);}finally{b.disabled=false;}
+ }
+ else if(action==='card-options')revealCardActions(b.closest('.card-swipe'),!b.closest('.card-swipe').classList.contains('actions-open'));
+ else if(action==='remove-card')removeCardModal(b.dataset.id);
+ else if(action==='confirm-remove-card'){b.disabled=true;try{await persist(setCardArchived(state(),b.dataset.id,true));closeModal();notify('Cartão excluído. Histórico e parcelas preservados.');}finally{b.disabled=false;}}
+ else if(action==='restore-card'){b.disabled=true;try{await persist(setCardArchived(state(),b.dataset.id,false));notify('Cartão restaurado.');}finally{b.disabled=false;}}
  else if(action==='transaction')transactionDetail(b.dataset.id);
  else if(action==='toggle-reimbursement'){const e=state().events.find(e=>e.id===b.dataset.id);await persist(['paid','covered'].includes(e.status)?restoreEvent(state(),e.id):settleEvent(state(),e.id));notify('Reembolso atualizado no saldo.');}
  else if(action==='modal-type'){modalType=b.dataset.value;const form=document.querySelector('#purchase-form');form.dataset.type=modalType;form.querySelectorAll('[data-action="modal-type"]').forEach(el=>{const selected=el.dataset.value===modalType;el.classList.toggle('selected',selected);el.setAttribute('aria-pressed',String(selected));});document.querySelector('#purchase-options').hidden=modalType==='income';updatePaymentFields();updatePurchasePreview();}
@@ -280,7 +327,7 @@ document.addEventListener('input',ev=>{
  if(ev.target.id==='history-search'){historySearch=ev.target.value;const cursor=ev.target.selectionStart;const position=document.querySelector('#app-viewport').scrollTop;render();const field=document.querySelector('#history-search');field.focus();field.setSelectionRange(cursor,cursor);document.querySelector('#app-viewport').scrollTop=position;}
 });
 document.addEventListener('submit',async ev=>{ev.preventDefault();const form=ev.target,button=form.querySelector('[type=submit]');if(!button||form.dataset.saving)return;form.dataset.saving='true';button.disabled=true;const error=form.querySelector('.form-error');if(error)error.textContent='';try{const f=Object.fromEntries(new FormData(form));
- if(form.id==='card-form'){const s=clone(state()),cards=cardsForState(s).map(c=>({...c})),card={id:form.dataset.id,name:f.name.trim(),dueDay:Number(f.dueDay),closingDay:Number(f.closingDay)},index=cards.findIndex(c=>c.id===card.id);if(index<0)cards.push(card);else cards[index]=card;s.settings.cards=cards;await persist(s);closeModal();notify('Cartão salvo. Próximas compras usarão este calendário.');}
+ if(form.id==='card-form'){const s=clone(state()),cards=cardsForState(s,{includeArchived:true}).map(c=>({...c})),card={id:form.dataset.id,name:f.name.trim(),dueDay:Number(f.dueDay),closingDay:Number(f.closingDay)},index=cards.findIndex(c=>c.id===card.id);if(index<0)cards.push(card);else cards[index]=card;s.settings.cards=cards;await persist(s);closeModal();notify('Cartão salvo. Próximas compras usarão este calendário.');}
  if(form.id==='purchase-form'){const id=crypto.randomUUID();if(modalType==='income'){await persist(addIncome(state(),{id,amount:parseMoney(f.amount),description:f.description,date:f.date,received:!!f.incomeReceived}));}else await persist(addPurchase(state(),purchaseInput(form,id)));closeModal();notify('Transação salva neste aparelho.');}
  if(form.id==='settings-form'){const s=clone(state());for(const key of ['balance','essentials','safety','monthlyLimit'])s.settings[key]=f[key]===''&&['essentials','monthlyLimit'].includes(key)?null:parseMoney(f[key]);s.settings.asOf=f.asOf;s.settings.reconciled=!!f.reconciled;await persist(s);notify('Ajustes salvos neste aparelho.');}
  if(form.id==='event-form'){

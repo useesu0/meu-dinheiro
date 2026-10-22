@@ -19,7 +19,7 @@ O sistema pode remover dados locais por falta de espaço ou limpeza do navegador
 Faça backup JSON em Arquivos regularmente e antes de trocar de aparelho.
 
 USO
-Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.4.0.
+Interface baseada no conceito iGasto fornecido pelo usuário, versão 2.5.0.
 Abas: Início, Transações, botão +, Análise e Ajustes.
 Botão + no rodapé: escolha Despesa ou Receita, valor e descrição.
 Receita: Já recebi inclui no saldo; desmarcado guarda apenas uma previsão.
@@ -53,6 +53,15 @@ Compras e acordos da planilha continuam individualmente após a última competê
 Essas consultas são previsões; faturas completas e repasses são conciliados na Agenda.
 Empréstimos permanecem com um lançamento por parcela e não são agrupados.
 Análise permite alternar Categoria, Cartão/Banco e Por pessoa.
+Em Análise, escolha o mês, a pessoa e o agrupamento e toque Excel (.xlsx)
+ou PDF / WhatsApp. Confira a prévia do relatório e o total do filtro.
+Salvar Excel gera um arquivo .xlsx com abas Resumo e Itens, valores numéricos,
+parcelas e situações. PDF contém o resumo e todos os itens, com paginação.
+No iPhone, Compartilhar PDF abre o menu do aparelho: escolha WhatsApp e o contato.
+Baixar PDF permite salvar em Arquivos e anexar manualmente como documento.
+O envio é escolhido por você; o aplicativo não envia mensagens automaticamente.
+Os arquivos são gerados no aparelho, inclusive offline após carregar a versão.
+Relatórios não substituem o backup JSON e não incluem seu saldo bancário.
 Toque em um grupo de Detalhamento para abrir a tabela de itens e valores.
 O detalhamento respeita o mês e a pessoa escolhidos. Por pessoa mostra cada parte.
 O destaque do painel é o saldo real da conta informado em Ajustes.
@@ -67,6 +76,11 @@ existem os registros detalhados de origem. Permanecem na Agenda e no cálculo de
 Entradas não confirmadas aparecem separadas e não liberam limite antes de receber.
 Livre para gastar agora continua usando o cálculo seguro descrito abaixo.
 Cartão: cadastre nome, dia do vencimento e dia do fechamento em Ajustes > Meus cartões.
+Em Meus cartões, deslize o retângulo para a esquerda para revelar Excluir.
+O botão ••• oferece a mesma ação sem gesto. Confirme o cartão escolhido.
+Excluir retira das opções de novas compras e do painel de cartões, preservando
+despesas, parcelas, faturas, pagamentos, nome no histórico e cálculo do orçamento.
+Ajustes > Cartões excluídos > Restaurar recupera o mesmo cadastro sem duplicar parcelas.
 No novo gasto, escolha o cartão e informe o valor TOTAL da compra e as parcelas.
 As datas são calculadas automaticamente. Compras no dia do fechamento entram
 na fatura seguinte. Confira a prévia e ajuste na Agenda se o banco usar outra data.
@@ -126,5 +140,7 @@ O backup inicial é importado pelo seletor de arquivos e permanece no aparelho.
 Hospedagens estáticas HTTPS, inclusive em subpasta, são compatíveis.
 
 VERIFICAÇÃO
-84 testes aprovados e interface conferida em navegador com largura de celular.
+92 testes aprovados e interface conferida em navegador com largura de celular.
 Ainda não houve teste em iPhone físico.
+ExcelJS 4.4.0 e jsPDF 4.2.1 acompanham o pacote local; licenças em
+THIRD-PARTY-LICENSES.txt. Não carregam bibliotecas externas para gerar relatórios.

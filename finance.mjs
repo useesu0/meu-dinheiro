@@ -35,15 +35,20 @@ export const PAYMENTS=['Pix','Dinheiro','ITAU','CLICK','PASSAÍ','BRADESCO','NUB
 const isCard=p=>!['Pix','Dinheiro','VR','VA'].includes(p);
 const validCardDay=day=>Number.isInteger(day)&&day>=1&&day<=31;
 const dateOnDay=(month,day)=>monthDate(`${month}-01`,0).slice(0,7)+'-'+String(Math.min(day,new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),0)).getUTCDate())).padStart(2,'0');
-export function cardsForState(state){
-  if(Array.isArray(state.settings.cards))return state.settings.cards;
+export function cardsForState(state,{includeArchived=false}={}){
+  if(Array.isArray(state.settings.cards))return state.settings.cards.filter(c=>includeArchived||!c.archived);
   return PAYMENTS.filter(isCard).map(id=>{
     const e=state.events.find(e=>e.account===id&&['invoice','card'].includes(e.kind)&&e.status!=='void'&&/^\d{4}-\d{2}-\d{2}$/.test(e.date||''));
     return {id,name:id,dueDay:e?Number(e.date.slice(-2)):null,closingDay:null};
   });
 }
-export const paymentName=(state,id)=>cardsForState(state).find(c=>c.id===id)?.name||id;
+export const paymentName=(state,id)=>cardsForState(state,{includeArchived:true}).find(c=>c.id===id)?.name||id;
 export const paymentOptions=state=>['Pix','Dinheiro',...cardsForState(state).map(c=>c.id),'VR','VA'];
+export function setCardArchived(state,id,archived=true){
+  const s=clone(state),cards=cardsForState(s,{includeArchived:true}).map(c=>({...c})),card=cards.find(c=>c.id===id);
+  if(!card||typeof archived!=='boolean')throw new Error('Cartão não encontrado.');
+  card.archived=archived;s.settings.cards=cards;return s;
+}
 export function firstCardDueDate(purchaseDate,card){
   if(!card||!validCardDay(card.dueDay)||!validCardDay(card.closingDay))throw new Error('Cadastre vencimento e fechamento do cartão em Ajustes.');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(purchaseDate||''))throw new Error('Informe a data da compra.');
@@ -107,7 +112,8 @@ export function agendaForMonth(state,month,status='open',person='Todos'){
 }
 export function addPurchase(state,input){
   if(!Number.isSafeInteger(input.amount)||input.amount<=0)throw new Error('O valor deve ser maior que zero.');
-  if(!input.description?.trim()||!/^\d{4}-\d{2}-\d{2}$/.test(input.date)||![...PAYMENTS,...paymentOptions(state)].includes(input.payment))throw new Error('Confira descrição, data e pagamento.');
+  if(!input.description?.trim()||!/^\d{4}-\d{2}-\d{2}$/.test(input.date)||!paymentOptions(state).includes(input.payment))throw new Error('Confira descrição, data e pagamento. Cadastre um cartão ativo em Ajustes.');
+  if(input.paymentMethod==='Cartão de Débito'&&!cardsForState(state).some(c=>c.id===input.bankId))throw new Error('Selecione um cartão ativo para o débito.');
   const count=Number(input.installments||1);if(!Number.isInteger(count)||count<1||count>60||count>input.amount)throw new Error('Confira o número de parcelas.');
   const card=cardsForState(state).find(c=>c.id===input.payment);
   const dueDate=isCard(input.payment)?input.dueDate||firstCardDueDate(input.date,card):undefined;
@@ -255,7 +261,7 @@ export function validateState(s){
   if(!s.settings.benefits)throw new Error('Benefícios ausentes.');for(const n of Object.values(s.settings.benefits))cents(n,true);
   if(s.settings.cards!==undefined){
     if(!Array.isArray(s.settings.cards)||s.settings.cards.length>100)throw new Error('Cadastro de cartões inválido.');
-    const cardIds=new Set();for(const c of s.settings.cards){if(!c||typeof c.id!=='string'||!/^[\p{L}\p{N}][\p{L}\p{N}:_-]{0,99}$/u.test(c.id)||!isCard(c.id)||cardIds.has(c.id)||typeof c.name!=='string'||!c.name.trim()||c.name.length>80||(c.dueDay!==null&&!validCardDay(c.dueDay))||(c.closingDay!==null&&!validCardDay(c.closingDay)))throw new Error('Confira nome, vencimento e fechamento dos cartões.');cardIds.add(c.id);}
+    const cardIds=new Set();for(const c of s.settings.cards){if(!c||typeof c.id!=='string'||!/^[\p{L}\p{N}][\p{L}\p{N}:_-]{0,99}$/u.test(c.id)||!isCard(c.id)||cardIds.has(c.id)||typeof c.name!=='string'||!c.name.trim()||c.name.length>80||(c.dueDay!==null&&!validCardDay(c.dueDay))||(c.closingDay!==null&&!validCardDay(c.closingDay))||(c.archived!==undefined&&typeof c.archived!=='boolean'))throw new Error('Confira nome, vencimento e fechamento dos cartões.');cardIds.add(c.id);}
   }
   const ids=new Set();for(const e of s.events){if(typeof e.id!=='string'||ids.has(e.id))throw new Error('Compromisso duplicado.');ids.add(e.id);cents(e.amount);if(e.amount<=0||!['in','out'].includes(e.direction)||!['planned','paid','covered','deferred','void'].includes(e.status))throw new Error('Compromisso inválido.');date(e.date,true);if(e.applied!==undefined)cents(e.applied);if(typeof e.description!=='string'||e.description.length>500)throw new Error('Descrição inválida.');}
   for(const e of s.events)if(e.recurrenceId!==undefined&&(typeof e.recurrenceId!=='string'||!e.recurrenceId.trim()||e.recurrenceId.length>100))throw new Error('Identificação de recorrência inválida.');
@@ -271,7 +277,7 @@ export function validateState(s){
     }
     const paid=itemPaidTotal(e),open=['planned','deferred'].includes(e.status);if(paid>e.amount||paid>-(e.applied||0)||Math.abs(e.applied||0)>e.amount||open&&(e.applied!==-paid||paid>=e.amount)||e.status==='covered'&&e.applied!==-paid||e.status==='paid'&&e.applied!==-e.amount)throw new Error('Pagamentos dos itens não conferem com a fatura.');
   }
-  const purchases=new Set();for(const p of s.purchases){if(typeof p.id!=='string'||purchases.has(p.id))throw new Error('Lançamento duplicado.');purchases.add(p.id);cents(p.amount);date(p.date);if(p.amount<=0||![...PAYMENTS,...paymentOptions(s)].includes(p.payment)||typeof p.description!=='string'||p.description.length>500)throw new Error('Lançamento inválido.');if(p.split){const v=p.split;if(typeof v.person!=='string'||!v.person.trim()||v.person==='JEFFERSON'||v.person.length>80||!Number.isFinite(v.percent)||v.percent<0||v.percent>100||!Number.isSafeInteger(v.myAmount)||!Number.isSafeInteger(v.otherAmount)||v.myAmount<0||v.otherAmount<0||v.myAmount+v.otherAmount!==p.amount)throw new Error('Divisão inválida no backup.');}}
+  const purchases=new Set();for(const p of s.purchases){if(typeof p.id!=='string'||purchases.has(p.id))throw new Error('Lançamento duplicado.');purchases.add(p.id);cents(p.amount);date(p.date);if(p.amount<=0||![...PAYMENTS,...cardsForState(s,{includeArchived:true}).map(c=>c.id)].includes(p.payment)||typeof p.description!=='string'||p.description.length>500)throw new Error('Lançamento inválido.');if(p.split){const v=p.split;if(typeof v.person!=='string'||!v.person.trim()||v.person==='JEFFERSON'||v.person.length>80||!Number.isFinite(v.percent)||v.percent<0||v.percent>100||!Number.isSafeInteger(v.myAmount)||!Number.isSafeInteger(v.otherAmount)||v.myAmount<0||v.otherAmount<0||v.myAmount+v.otherAmount!==p.amount)throw new Error('Divisão inválida no backup.');}}
   return s;
 }
 export function addIncome(state,input){
@@ -320,7 +326,7 @@ export function analysisGroups(state,month,mode='category',person='JEFFERSON'){
   const rows=ledgerForMonth(state,month,{type:'expense',person:mode==='person'?'Todos':person}).filter(r=>!['VR','VA'].includes(r.payment));
   let selected;
   if(mode==='person')selected=rows.flatMap(r=>Object.entries(r.shares).filter(([,amount])=>amount!==0).map(([name,amount])=>({...r,expenseCategory:r.category,category:name,analysisPerson:name,amount,originalAmount:r.isSplit?undefined:r.originalAmount})));
-  else selected=rows.filter(r=>mode!=='bank'||cardsForState(state).some(c=>c.id===r.payment)||r.bankId).map(r=>({...r,expenseCategory:r.category,category:mode==='bank'?r.bank:r.category,analysisPerson:!['Todos','ALL'].includes(person)?person:undefined,amount:['Todos','ALL'].includes(person)?r.amount:r.displayAmount,originalAmount:r.isSplit?undefined:r.originalAmount}));
+  else selected=rows.filter(r=>mode!=='bank'||cardsForState(state,{includeArchived:true}).some(c=>c.id===r.payment)||r.bankId).map(r=>({...r,expenseCategory:r.category,category:mode==='bank'?r.bank:r.category,analysisPerson:!['Todos','ALL'].includes(person)?person:undefined,amount:['Todos','ALL'].includes(person)?r.amount:r.displayAmount,originalAmount:r.isSplit?undefined:r.originalAmount}));
   return groupExpenses(selected).map(g=>({...g,rows:detailExpenseRows(g.rows,g.amount)}));
 }
 export function monthOverview(state,month){

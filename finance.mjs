@@ -11,6 +11,7 @@ export const salaryForMonth = (month,parameters={}) => (parameters.base||0)+(mon
 export const historyTotal = rows => Math.round(rows.reduce((n,r)=>n+Math.round((r.originalAmount??r.amount/100)*1000),0)/10);
 export const itemPaidTotal = e => (e.itemPayments||[]).reduce((n,p)=>n+p.amount,0);
 export const outstandingAmount = e => Math.max(0,e.amount-itemPaidTotal(e));
+const isRefundContainer = e => e?.reimbursementChildren!==undefined;
 export const isPayrollLoan = e => e?.kind==='loan'&&typeof e.payrollMonth==='string';
 const salaryMonth = salary => salary.salaryMonth||salary.date.slice(0,7);
 const payrollTotal = (state,salary) => state.events.filter(e=>isPayrollLoan(e)&&e.payrollMonth===salaryMonth(salary)&&e.status!=='void').reduce((n,e)=>n+e.amount,0);
@@ -137,7 +138,7 @@ export function expensesForMonth(state,month,person='Todos',search=''){
   return expanded.filter(r=>(person==='Todos'||r.person===person)&&(!query||searchable(`${r.description} ${r.category} ${categoryName(r.category)}`).includes(query)));
 }
 export function agendaForMonth(state,month,status='open',person='Todos'){
-  return state.events.filter(e=>status==='deferred'?e.status==='deferred':status==='closed'?['paid','covered','void'].includes(e.status):e.status==='planned')
+  return state.events.filter(e=>!isRefundContainer(e)).filter(e=>status==='deferred'?e.status==='deferred':status==='closed'?['paid','covered','void'].includes(e.status):e.status==='planned')
     .filter(e=>status==='deferred'||!e.date||e.date.startsWith(month))
     .filter(e=>person==='Todos'||(e.person||'JEFFERSON')===person)
     .map(e=>e.itemPayments?.length&&['planned','deferred'].includes(e.status)?{...e,amount:outstandingAmount(e),partialPaid:itemPaidTotal(e),fullAmount:e.amount}:e)
@@ -168,8 +169,8 @@ export function addPurchase(state,input){
   if(split?.otherAmount>0&&input.split.received)return settleEvent(s,`reimbursement-${p.id}`,p.date);
   return s;
 }
-export function settleEvent(state,id,date=todayBR(),alreadyIncluded=false){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||!['planned','deferred'].includes(e.status))throw new Error('Este compromisso já foi conciliado.');if(isPayrollLoan(e)&&!alreadyIncluded)throw new Error('Desconto em folha: registre o salário líquido recebido ou confirme que o desconto já está incluído.');e.previousStatus=e.previousStatus||e.status;const applied=alreadyIncluded?0:(e.direction==='in'?e.amount:-outstandingAmount(e));e.status=alreadyIncluded?'covered':'paid';e.paidDate=date;e.applied=(e.applied||0)+applied;s.settings.balance+=applied;coverPayrollLoans(s,e,date);return s;}
-export function restoreEvent(state,id){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||!['paid','covered'].includes(e.status)&&!e.itemPayments?.length)throw new Error('Compromisso não conciliado.');if(e.payrollAutoSalaryId)throw new Error('Este desconto em folha foi conciliado com o salário. Reabra o salário correspondente primeiro.');for(const loan of s.events.filter(r=>r.payrollAutoSalaryId===id)){loan.status=loan.previousStatus||'planned';delete loan.applied;delete loan.paidDate;delete loan.previousStatus;delete loan.payrollAutoSalaryId;}s.settings.balance-=e.applied||0;e.status=e.previousStatus||'planned';delete e.applied;delete e.paidDate;delete e.itemPayments;delete e.previousStatus;return s;}
+export function settleEvent(state,id,date=todayBR(),alreadyIncluded=false){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||isRefundContainer(e)||!['planned','deferred'].includes(e.status))throw new Error('Este compromisso já foi conciliado ou o acerto foi individualizado.');if(isPayrollLoan(e)&&!alreadyIncluded)throw new Error('Desconto em folha: registre o salário líquido recebido ou confirme que o desconto já está incluído.');e.previousStatus=e.previousStatus||e.status;const applied=alreadyIncluded?0:(e.direction==='in'?e.amount:-outstandingAmount(e));e.status=alreadyIncluded?'covered':'paid';e.paidDate=date;e.applied=(e.applied||0)+applied;s.settings.balance+=applied;coverPayrollLoans(s,e,date);if(e.direction==='out'&&!isPayrollLoan(e))ensureRefundsForEvent(s,e);return s;}
+export function restoreEvent(state,id){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||isRefundContainer(e)||!['paid','covered'].includes(e.status)&&!e.itemPayments?.length)throw new Error('Compromisso não conciliado ou acerto já individualizado.');if(e.payrollAutoSalaryId)throw new Error('Este desconto em folha foi conciliado com o salário. Reabra o salário correspondente primeiro.');for(const loan of s.events.filter(r=>r.payrollAutoSalaryId===id)){loan.status=loan.previousStatus||'planned';delete loan.applied;delete loan.paidDate;delete loan.previousStatus;delete loan.payrollAutoSalaryId;}s.settings.balance-=e.applied||0;e.status=e.previousStatus||'planned';delete e.applied;delete e.paidDate;delete e.itemPayments;delete e.previousStatus;return s;}
 const editableEvent=e=>e&&['planned','deferred'].includes(e.status)&&!e.itemPayments?.length;
 function recurrenceKey(e){
   if(!e||e.direction!=='out'||e.purchaseId||['loan','card','invoice','agreement','installments','settlement'].includes(e.kind))return null;
@@ -196,11 +197,12 @@ export function editEvent(state,input,scope='single'){
   if(isPayrollLoan(current)&&current.date)current.payrollMonth=monthDate(current.date,-1).slice(0,7);
   if(current.kind==='salary'&&current.beforePayrollAmount!==undefined)current.beforePayrollAmount=current.amount+payrollTotal(s,current);
   if(isPayrollLoan(old)||current.kind==='salary'&&current.beforePayrollAmount!==undefined)refreshPayrollForecasts(s);
+  if(current.reimbursementParentId){const parent=s.events.find(e=>e.id===current.reimbursementParentId);if(parent)parent.amount=parent.reimbursementChildren.reduce((n,id)=>n+s.events.find(e=>e.id===id).amount,0);}
   if(scope==='future')for(const target of recurrence.targets)if(target.id!==old.id)s.events.find(e=>e.id===target.id).amount=input.amount;
   validateState(s);return s;
 }
 export function receiptsForRows(state,rows){
-  const ids=new Set(rows.flatMap(r=>[r.eventId,r.reimbursementId]).filter(Boolean));
+  const ids=new Set(rows.flatMap(r=>[r.eventId,r.reimbursementId,reimbursementForExpense(state,r)?.id]).filter(Boolean));
   return state.events.filter(e=>ids.has(e.id)&&e.direction==='in'&&e.status==='planned');
 }
 // A competência da planilha precede a fatura cadastrada na importação original.
@@ -215,6 +217,63 @@ function sourcePaymentEvent(state,row){
   const individual=candidates.find(e=>['agreement','settlement'].includes(e.kind)&&e.description===original.description&&e.id.endsWith('-'+original.row));
   if(individual)return individual;
   const grouped=candidates.filter(e=>['invoice','installments','settlement'].includes(e.kind));return grouped.length===1?grouped[0]:null;
+}
+const expenseKey = (state,row) => {
+  const event=state.events.find(e=>e.id===(row.eventId||row.paymentEventId));
+  return event?.kind==='fixed'?event.id:row.id;
+};
+const expenseMonth = row => row.month||row.date?.slice(0,7);
+const otherPerson = row => row.isSplit?row.split?.person:(row.person&& !['JEFFERSON','Compartilhado'].includes(row.person)?row.person:null);
+export function reimbursementForExpense(state,row){
+  if(!row||row.type!=='expense')return null;
+  const key=expenseKey(state,row),month=expenseMonth(row),person=otherPerson(row);
+  return state.events.find(e=>e.kind==='reimbursement'&&e.expenseKey===key&&e.expenseMonth===month&&e.person===person)
+    ||state.events.find(e=>e.kind==='reimbursement'&&e.id===(row.reimbursementId||(row.purchaseId?`reimbursement-${row.purchaseId}`:'')))||null;
+}
+export function splitReimbursement(state,id){
+  const s=clone(state),parent=s.events.find(e=>e.id===id);if(isRefundContainer(parent)){validateState(s);return s;}
+  if(!parent||parent.kind!=='reimbursement'||parent.status!=='planned'||parent.applied||!parent.date||parent.purchaseId||parent.expenseKey)throw new Error('Este acerto não pode ser individualizado automaticamente.');
+  const month=monthDate(parent.date,-1).slice(0,7),person=parent.person;
+  const rows=ledgerForMonth(s,month,{type:'expense',person}).filter(r=>!r.purchaseId&&(r.origin==='source'||r.origin==='source-projection'||r.source==='source'&&r.kind==='fixed'));
+  if(!rows.length||historyTotal(rows)!==parent.amount)throw new Error('Os gastos não fecham com o total do acerto. Confira os valores antes de individualizar.');
+  const children=[];
+  for(const [i,row] of detailExpenseRows(rows,parent.amount).entries()){
+    if(reimbursementForExpense(s,row))throw new Error('Um gasto deste acerto já possui reembolso individual.');
+    const childId=`${id}:item:${i+1}`;if(s.events.some(e=>e.id===childId))throw new Error('Reembolso individual duplicado.');
+    const child={id:childId,description:`${person} · reembolso de ${row.description}`,amount:row.detailAmount,date:parent.date,month,direction:'in',status:'planned',confirmed:!!parent.confirmed,source:'itemized',kind:'reimbursement',account:'Conta',person,expenseKey:expenseKey(s,row),expenseMonth:month,reimbursementParentId:id,note:'Reembolso individual: receber este valor não altera o pagamento da conta.'};
+    children.push(child);s.events.push(child);
+  }
+  parent.reimbursementChildren=children.map(e=>e.id);parent.originalReimbursementAmount=parent.amount;parent.kind='reimbursement-group';parent.status='void';parent.applied=0;
+  validateState(s);return s;
+}
+function fixedOrigin(state,row){
+  if(row.origin==='source')return state.history.find(r=>r.id===row.id&&r.type==='Fixa');
+  const e=state.events.find(e=>e.id===(row.eventId||row.paymentEventId||row.id));
+  const number=e?.kind==='fixed'&&e.source==='source'&&e.id.match(/^fixed-(?:current|\d{4}-\d{2})-(\d+)$/)?.[1];
+  return number?state.history.find(r=>String(r.row)===number&&r.type==='Fixa'):null;
+}
+export function billSettlementDetails(state,id,month){
+  const rows=ledgerForMonth(state,month,{type:'expense'}),row=rows.find(r=>r.id===id||r.eventId===id||r.paymentEventId===id);
+  if(!row)return null;const origin=fixedOrigin(state,row);let parts=[row];
+  if(origin){const matches=rows.filter(r=>{const o=fixedOrigin(state,r);return o&&o.description===origin.description&&o.category===origin.category&&o.account===origin.account;});if(matches.length>1&&new Set(matches.map(r=>r.person)).size===matches.length)parts=matches;}
+  const payments=paymentsForRows(state,parts);
+  return {row,parts,payments,total:payments.reduce((n,e)=>n+e.amount,0),receipt:reimbursementForExpense(state,row),month};
+}
+export function payBill(state,id,month,date=todayBR()){
+  const details=billSettlementDetails(state,id,month);if(!details?.payments.length)throw new Error('Esta conta já foi paga.');
+  return payExpenses(state,details.payments.map(e=>e.id),month,date);
+}
+function ensureExpenseRefund(state,row){
+  const person=otherPerson(row);if(!person||row.type!=='expense'||isPayrollLoan(row)||reimbursementForExpense(state,row))return;
+  // Old undivided settlements must be reconciled before opening another claim.
+  if(state.events.some(e=>e.kind==='reimbursement'&&e.source==='source'&&e.person===person&&!e.expenseKey&&!e.purchaseId&&e.status!=='void'))return;
+  const month=expenseMonth(row),key=expenseKey(state,row);if(!month||!key)return;
+  const id=`refund:${key}:${month}`,amount=row.isSplit?row.shares?.[person]:row.amount;if(!amount||state.events.some(e=>e.id===id))return;
+  state.events.push({id,description:`${person} · reembolso de ${row.description}`,amount,date:'',month,direction:'in',status:'planned',confirmed:false,source:'itemized',kind:'reimbursement',account:'Conta',person,expenseKey:key,expenseMonth:month,note:'Conta paga por você. O reembolso permanece em aberto até ser recebido.'});
+}
+function ensureRefundsForEvent(state,event){
+  const months=new Set([...state.history.map(r=>r.month),event.month,event.date?.slice(0,7),event.date?monthDate(event.date,-1).slice(0,7):'']);
+  for(const month of months)if(/^\d{4}-\d{2}$/.test(month||''))for(const row of ledgerForMonth(state,month,{type:'expense'}))if(row.eventId===event.id||row.paymentEventId===event.id)ensureExpenseRefund(state,row);
 }
 function sourceItemAmounts(state,month){
  const groups=new Map(),amounts=new Map();
@@ -267,6 +326,7 @@ export function payExpenses(state,ids,month,date=todayBR()){
     e.applied=(e.applied||0)-total;s.settings.balance-=total;
     if(entries.some(r=>!r.item)||outstandingAmount(e)===0){e.status='paid';e.paidDate=date;}
   }
+  const selectedRows=new Set(ids);for(const row of ledgerForMonth(s,month,{type:'expense'}))if(selectedRows.has(row.id)||selectedRows.has(row.eventId))ensureExpenseRefund(s,row);
   validateState(s);return s;
 }
 export function installmentDetails(state,row){
@@ -306,6 +366,23 @@ export function validateState(s){
     if(e.beforePayrollAmount!==undefined){if(e.kind!=='salary'||e.direction!=='in')throw new Error('Salário antes da folha inválido.');cents(e.beforePayrollAmount);if(e.beforePayrollAmount<=0)throw new Error('Salário antes da folha inválido.');}
     if(e.salaryMonth!==undefined&&(e.kind!=='salary'||!/^\d{4}-(0[1-9]|1[0-2])$/.test(e.salaryMonth)))throw new Error('Competência de salário em folha inválida.');
     if(e.payrollAutoSalaryId!==undefined){const salary=s.events.find(r=>r.id===e.payrollAutoSalaryId);if(!isPayrollLoan(e)||e.status!=='covered'||!['planned','deferred'].includes(e.previousStatus)||!salary||salary.kind!=='salary'||!['paid','covered'].includes(salary.status)||salaryMonth(salary)!==e.payrollMonth)throw new Error('Vínculo de desconto em folha inválido.');}
+  }
+  const refundKeys=new Set(),refundRows=new Map();
+  for(const e of s.events){
+    if(isRefundContainer(e)){
+      if(e.kind!=='reimbursement-group'||e.direction!=='in'||e.status!=='void'||e.applied!==0||!Array.isArray(e.reimbursementChildren)||!e.reimbursementChildren.length||new Set(e.reimbursementChildren).size!==e.reimbursementChildren.length)throw new Error('Acerto individualizado inválido.');
+      const children=e.reimbursementChildren.map(id=>s.events.find(r=>r.id===id));
+      if(children.some(c=>!c||c.kind!=='reimbursement'||c.direction!=='in'||c.person!==e.person||c.reimbursementParentId!==e.id||!c.expenseKey)||children.reduce((n,c)=>n+c.amount,0)!==e.amount)throw new Error('Itens do acerto não conferem.');
+    }
+    if(e.expenseKey!==undefined){
+      if(e.kind!=='reimbursement'||e.direction!=='in'||typeof e.expenseKey!=='string'||!e.expenseKey||!/^\d{4}-(0[1-9]|1[0-2])$/.test(e.expenseMonth||'')||!['planned','paid','covered','void'].includes(e.status)||(e.status==='paid'?(e.applied!==e.amount):(e.applied||0)!==0))throw new Error('Reembolso por gasto inválido.');
+      const key=JSON.stringify([e.expenseKey,e.expenseMonth,e.person]);if(refundKeys.has(key))throw new Error('Reembolso por gasto duplicado.');refundKeys.add(key);
+      if(!refundRows.has(e.expenseMonth))refundRows.set(e.expenseMonth,ledgerForMonth(s,e.expenseMonth,{type:'expense'}));
+      const row=refundRows.get(e.expenseMonth).find(r=>expenseKey(s,r)===e.expenseKey&&otherPerson(r)===e.person);
+      const inactiveOrigin=e.status==='void'&&(s.events.some(r=>r.id===e.expenseKey&&r.direction==='out')||s.history.some(r=>r.id===e.expenseKey));
+      if(!row&&!inactiveOrigin)throw new Error('Reembolso sem gasto da pessoa correspondente. Cancele o reembolso antes de cancelar a despesa.');
+      if(e.reimbursementParentId!==undefined){const parent=s.events.find(r=>r.id===e.reimbursementParentId);if(!isRefundContainer(parent)||!parent.reimbursementChildren.includes(e.id))throw new Error('Vínculo do reembolso com o acerto inválido.');}
+    }else if(e.reimbursementParentId!==undefined||e.expenseMonth!==undefined)throw new Error('Vínculo de reembolso incompleto.');
   }
   const paymentKeys=new Set(),paymentMonths=new Map();for(const e of s.events)if(e.itemPayments!==undefined){
     if(e.direction!=='out'||!Array.isArray(e.itemPayments)||e.itemPayments.length>10000||e.status==='void')throw new Error('Pagamentos dos itens inválidos.');

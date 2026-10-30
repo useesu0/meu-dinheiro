@@ -11,16 +11,49 @@ export const salaryForMonth = (month,parameters={}) => (parameters.base||0)+(mon
 export const historyTotal = rows => Math.round(rows.reduce((n,r)=>n+Math.round((r.originalAmount??r.amount/100)*1000),0)/10);
 export const itemPaidTotal = e => (e.itemPayments||[]).reduce((n,p)=>n+p.amount,0);
 export const outstandingAmount = e => Math.max(0,e.amount-itemPaidTotal(e));
+export const isPayrollLoan = e => e?.kind==='loan'&&typeof e.payrollMonth==='string';
+const salaryMonth = salary => salary.salaryMonth||salary.date.slice(0,7);
+const payrollTotal = (state,salary) => state.events.filter(e=>isPayrollLoan(e)&&e.payrollMonth===salaryMonth(salary)&&e.status!=='void').reduce((n,e)=>n+e.amount,0);
+function refreshPayrollForecasts(state){
+  for(const salary of state.events.filter(e=>e.kind==='salary'&&e.direction==='in'&&e.status==='planned'&&e.date)){
+    const deductions=payrollTotal(state,salary);if(!deductions&&salary.beforePayrollAmount===undefined)continue;
+    salary.salaryMonth??=salary.date.slice(0,7);salary.beforePayrollAmount??=salary.amount;
+    if(salary.beforePayrollAmount<=deductions)throw new Error('Descontos em folha maiores que o salário previsto.');
+    salary.amount=salary.beforePayrollAmount-deductions;
+  }
+}
+function coverPayrollLoans(state,salary,date){
+  if(salary.kind!=='salary'||salary.direction!=='in')return;
+  for(const e of state.events)if(isPayrollLoan(e)&&e.payrollMonth===salaryMonth(salary)&&['planned','deferred'].includes(e.status)){
+    e.previousStatus=e.status;e.status='covered';e.applied=0;e.paidDate=date;e.payrollAutoSalaryId=salary.id;
+  }
+}
+export function setLoanPayroll(state,eventIds){
+  if(!Array.isArray(eventIds)||!eventIds.length)throw new Error('Selecione as parcelas do empréstimo.');
+  const s=clone(state);
+  for(const id of new Set(eventIds)){
+    const e=s.events.find(e=>e.id===id);
+    if(!e||e.kind!=='loan'||e.direction!=='out'||!e.date||!['planned','deferred','covered'].includes(e.status)||e.applied||e.itemPayments?.length)throw new Error('Parcela não pode ser alterada para desconto em folha.');
+    e.payrollMonth=monthDate(e.date,-1).slice(0,7);e.account='Folha de pagamento';
+  }
+  for(const salary of s.events.filter(e=>e.kind==='salary'&&e.direction==='in'&&e.date)){
+    const deductions=payrollTotal(s,salary);
+    if(!deductions)continue;
+    if(['paid','covered'].includes(salary.status))coverPayrollLoans(s,salary,salary.paidDate||salary.date);
+  }
+  refreshPayrollForecasts(s);
+  validateState(s);return s;
+}
 export function monthDate(date,delta){const [y,m,d]=date.split('-').map(Number);const start=new Date(Date.UTC(y,m-1+delta,1));const last=new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth()+1,0)).getUTCDate();return `${start.getUTCFullYear()}-${String(start.getUTCMonth()+1).padStart(2,'0')}-${String(Math.min(d,last)).padStart(2,'0')}`;}
 export function nextPayday(state,today){const e=state.events.filter(e=>e.kind==='salary'&&e.status==='planned'&&e.date>today).sort((a,b)=>a.date.localeCompare(b.date))[0];return e?.date||monthDate(today,1);}
 export function previousDay(date){const d=new Date(date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-1);return d.toISOString().slice(0,10);}
 export function dashboard(state,today=todayBR(),until=previousDay(nextPayday(state,today))){
   let balance=state.settings.balance, minimum=balance, income=0,expenses=0;
-  const events=state.events.filter(e=>e.status==='planned'&&e.date&&e.date<=until&&(e.direction==='out'||e.confirmed)).sort((a,b)=>a.date.localeCompare(b.date)||(a.direction==='out'?-1:1));
+  const events=state.events.filter(e=>!isPayrollLoan(e)&&e.status==='planned'&&e.date&&e.date<=until&&(e.direction==='out'||e.confirmed)).sort((a,b)=>a.date.localeCompare(b.date)||(a.direction==='out'?-1:1));
   const daily=[{date:today,balance}];
   for(const e of events){const amount=e.direction==='in'?e.amount:-outstandingAmount(e);balance+=amount;if(amount>0)income+=amount;else expenses-=amount;minimum=Math.min(minimum,balance);daily.push({date:e.date<today?today:e.date,balance});}
-  const deferred=state.events.filter(e=>e.direction==='out'&&e.status==='deferred').reduce((n,e)=>n+outstandingAmount(e),0);
-  const undated=state.events.filter(e=>e.direction==='out'&&e.status==='planned'&&!e.date).reduce((n,e)=>n+outstandingAmount(e),0);
+  const deferred=state.events.filter(e=>!isPayrollLoan(e)&&e.direction==='out'&&e.status==='deferred').reduce((n,e)=>n+outstandingAmount(e),0);
+  const undated=state.events.filter(e=>!isPayrollLoan(e)&&e.direction==='out'&&e.status==='planned'&&!e.date).reduce((n,e)=>n+outstandingAmount(e),0);
   const newCredit=state.events.filter(e=>e.direction==='out'&&e.status==='planned'&&e.source==='quick'&&e.date>until).reduce((n,e)=>n+outstandingAmount(e),0);
   const essentials=state.settings.essentials, safety=state.settings.safety||0;
   const potential=Math.max(0,minimum-deferred-undated-newCredit-(essentials||0)-safety);
@@ -135,8 +168,8 @@ export function addPurchase(state,input){
   if(split?.otherAmount>0&&input.split.received)return settleEvent(s,`reimbursement-${p.id}`,p.date);
   return s;
 }
-export function settleEvent(state,id,date=todayBR(),alreadyIncluded=false){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||!['planned','deferred'].includes(e.status))throw new Error('Este compromisso já foi conciliado.');e.previousStatus=e.previousStatus||e.status;const applied=alreadyIncluded?0:(e.direction==='in'?e.amount:-outstandingAmount(e));e.status=alreadyIncluded?'covered':'paid';e.paidDate=date;e.applied=(e.applied||0)+applied;s.settings.balance+=applied;return s;}
-export function restoreEvent(state,id){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||!['paid','covered'].includes(e.status)&&!e.itemPayments?.length)throw new Error('Compromisso não conciliado.');s.settings.balance-=e.applied||0;e.status=e.previousStatus||'planned';delete e.applied;delete e.paidDate;delete e.itemPayments;delete e.previousStatus;return s;}
+export function settleEvent(state,id,date=todayBR(),alreadyIncluded=false){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||!['planned','deferred'].includes(e.status))throw new Error('Este compromisso já foi conciliado.');if(isPayrollLoan(e)&&!alreadyIncluded)throw new Error('Desconto em folha: registre o salário líquido recebido ou confirme que o desconto já está incluído.');e.previousStatus=e.previousStatus||e.status;const applied=alreadyIncluded?0:(e.direction==='in'?e.amount:-outstandingAmount(e));e.status=alreadyIncluded?'covered':'paid';e.paidDate=date;e.applied=(e.applied||0)+applied;s.settings.balance+=applied;coverPayrollLoans(s,e,date);return s;}
+export function restoreEvent(state,id){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||!['paid','covered'].includes(e.status)&&!e.itemPayments?.length)throw new Error('Compromisso não conciliado.');if(e.payrollAutoSalaryId)throw new Error('Este desconto em folha foi conciliado com o salário. Reabra o salário correspondente primeiro.');for(const loan of s.events.filter(r=>r.payrollAutoSalaryId===id)){loan.status=loan.previousStatus||'planned';delete loan.applied;delete loan.paidDate;delete loan.previousStatus;delete loan.payrollAutoSalaryId;}s.settings.balance-=e.applied||0;e.status=e.previousStatus||'planned';delete e.applied;delete e.paidDate;delete e.itemPayments;delete e.previousStatus;return s;}
 const editableEvent=e=>e&&['planned','deferred'].includes(e.status)&&!e.itemPayments?.length;
 function recurrenceKey(e){
   if(!e||e.direction!=='out'||e.purchaseId||['loan','card','invoice','agreement','installments','settlement'].includes(e.kind))return null;
@@ -160,6 +193,9 @@ export function editEvent(state,input,scope='single'){
   const recurrence=recurrenceForEvent(state,old.id);if(scope==='future'&&(!recurrence||input.direction!=='out'))throw new Error('Este movimento não pertence a uma recorrência de despesas.');
   const s=clone(state),current=s.events.find(e=>e.id===old.id);
   Object.assign(current,{description:input.description.trim(),amount:input.amount,date:input.date,direction:input.direction,status:input.status,person:input.person||old.person||'JEFFERSON',confirmed:!!input.confirmed&&!!input.date,review:false});
+  if(isPayrollLoan(current)&&current.date)current.payrollMonth=monthDate(current.date,-1).slice(0,7);
+  if(current.kind==='salary'&&current.beforePayrollAmount!==undefined)current.beforePayrollAmount=current.amount+payrollTotal(s,current);
+  if(isPayrollLoan(old)||current.kind==='salary'&&current.beforePayrollAmount!==undefined)refreshPayrollForecasts(s);
   if(scope==='future')for(const target of recurrence.targets)if(target.id!==old.id)s.events.find(e=>e.id===target.id).amount=input.amount;
   validateState(s);return s;
 }
@@ -196,7 +232,7 @@ function sourceItemAmounts(state,month){
 export function paymentsForRows(state,rows){
   const output=new Map(),sourceMonths=new Map();
   for(const row of rows){
-    if(row.type!=='expense'||['paid','covered','void'].includes(row.status)||row.sourceStatus==='Pago')continue;
+    if(row.type!=='expense'||isPayrollLoan(row)||['paid','covered','void'].includes(row.status)||row.sourceStatus==='Pago')continue;
     if(['source','source-projection'].includes(row.origin)){
       if(!sourceMonths.has(row.month))sourceMonths.set(row.month,sourceItemAmounts(state,row.month));
       const e=sourcePaymentEvent(state,row),amount=sourceMonths.get(row.month).get(row.id)?.amount;
@@ -249,7 +285,7 @@ export function receiveEvents(state,ids,date=todayBR()){
   const selected=new Set(ids),events=new Map(state.events.map(e=>[e.id,e]));
   for(const id of selected){const e=events.get(id);if(!e||e.direction!=='in'||e.status!=='planned')throw new Error('Uma entrada da seleção já foi conciliada ou não pode ser recebida. Revise a seleção.');}
   const s=clone(state);
-  for(const e of s.events)if(selected.has(e.id)){e.previousStatus=e.status;e.status='paid';e.paidDate=date;e.applied=e.amount;s.settings.balance+=e.amount;}
+  for(const e of s.events)if(selected.has(e.id)){e.previousStatus=e.status;e.status='paid';e.paidDate=date;e.applied=e.amount;s.settings.balance+=e.amount;coverPayrollLoans(s,e,date);}
   validateState(s);return s;
 }
 export function undoPurchase(state,id){const s=clone(state),p=s.purchases.find(p=>p.id===id);if(!p||p.void)throw new Error('Lançamento já desfeito.');const linked=s.events.filter(e=>e.purchaseId===id);if(linked.some(e=>['paid','covered'].includes(e.status)))throw new Error('Desfaça primeiro a conciliação dos pagamentos desta compra na Agenda.');p.void=true;for(const e of linked)e.status='void';if(['Pix','Dinheiro'].includes(p.payment))s.settings.balance+=p.amount;else if(['VR','VA'].includes(p.payment)&&s.settings.benefits[p.payment]!==null)s.settings.benefits[p.payment]+=p.amount;return s;}
@@ -265,6 +301,12 @@ export function validateState(s){
   }
   const ids=new Set();for(const e of s.events){if(typeof e.id!=='string'||ids.has(e.id))throw new Error('Compromisso duplicado.');ids.add(e.id);cents(e.amount);if(e.amount<=0||!['in','out'].includes(e.direction)||!['planned','paid','covered','deferred','void'].includes(e.status))throw new Error('Compromisso inválido.');date(e.date,true);if(e.applied!==undefined)cents(e.applied);if(typeof e.description!=='string'||e.description.length>500)throw new Error('Descrição inválida.');}
   for(const e of s.events)if(e.recurrenceId!==undefined&&(typeof e.recurrenceId!=='string'||!e.recurrenceId.trim()||e.recurrenceId.length>100))throw new Error('Identificação de recorrência inválida.');
+  for(const e of s.events){
+    if(e.payrollMonth!==undefined&&(!isPayrollLoan(e)||!/^\d{4}-(0[1-9]|1[0-2])$/.test(e.payrollMonth)||e.direction!=='out'||!e.date||monthDate(e.date,-1).slice(0,7)!==e.payrollMonth||e.itemPayments?.length||(e.applied||0)!==0||e.status==='paid'))throw new Error('Desconto em folha inválido.');
+    if(e.beforePayrollAmount!==undefined){if(e.kind!=='salary'||e.direction!=='in')throw new Error('Salário antes da folha inválido.');cents(e.beforePayrollAmount);if(e.beforePayrollAmount<=0)throw new Error('Salário antes da folha inválido.');}
+    if(e.salaryMonth!==undefined&&(e.kind!=='salary'||!/^\d{4}-(0[1-9]|1[0-2])$/.test(e.salaryMonth)))throw new Error('Competência de salário em folha inválida.');
+    if(e.payrollAutoSalaryId!==undefined){const salary=s.events.find(r=>r.id===e.payrollAutoSalaryId);if(!isPayrollLoan(e)||e.status!=='covered'||!['planned','deferred'].includes(e.previousStatus)||!salary||salary.kind!=='salary'||!['paid','covered'].includes(salary.status)||salaryMonth(salary)!==e.payrollMonth)throw new Error('Vínculo de desconto em folha inválido.');}
+  }
   const paymentKeys=new Set(),paymentMonths=new Map();for(const e of s.events)if(e.itemPayments!==undefined){
     if(e.direction!=='out'||!Array.isArray(e.itemPayments)||e.itemPayments.length>10000||e.status==='void')throw new Error('Pagamentos dos itens inválidos.');
     for(const p of e.itemPayments){

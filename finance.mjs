@@ -440,6 +440,22 @@ export function cardExpenseDetails(state,month,cardId){
   const rows=ledgerForMonth(state,month,{type:'expense'}).filter(r=>r.payment===cardId&&!['VR','VA'].includes(r.payment)),amount=historyTotal(rows);
   return {title:paymentName(state,cardId),amount,rows:detailExpenseRows(rows,amount)};
 }
+export function cardPaymentDetails(state,month,cardId){
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month||'')||!cardId||!isCard(cardId))throw new Error('Confira o cartão e o mês selecionados.');
+  const detail=cardExpenseDetails(state,month,cardId);
+  if(!detail.rows.length&&!cardsForState(state,{includeArchived:true}).some(c=>c.id===cardId))throw new Error('Cartão não encontrado.');
+  const pending=detail.rows.filter(r=>r.detailAmount>0&&!['paid','covered','void'].includes(r.status)&&r.sourceStatus!=='Pago');
+  const payments=paymentsForRows(state,pending),groups=new Map();
+  for(const p of payments)groups.set(p.eventId,(groups.get(p.eventId)||0)+p.amount);
+  const blocked=pending.some(r=>!payments.some(p=>p.id===r.id||p.id===r.eventId))||[...groups].some(([id,total])=>total!==outstandingAmount(state.events.find(e=>e.id===id)));
+  return {...detail,month,cardId,pending,payments,total:payments.reduce((n,p)=>n+p.amount,0),blocked};
+}
+export function payCard(state,month,cardId,date=todayBR()){
+  const detail=cardPaymentDetails(state,month,cardId);
+  if(detail.blocked)throw new Error('Os itens não conferem com a fatura. Confira valores e vínculos na Agenda antes de marcar o cartão como pago.');
+  if(!detail.payments.length)throw new Error('Não há despesas pendentes deste cartão neste mês.');
+  return payExpenses(state,detail.payments.map(p=>p.id),month,date);
+}
 export function analysisGroups(state,month,mode='category',person='JEFFERSON'){
   if(!['category','bank','person'].includes(mode))throw new Error('Agrupamento de análise inválido.');
   const rows=ledgerForMonth(state,month,{type:'expense',person:mode==='person'?'Todos':person}).filter(r=>!['VR','VA'].includes(r.payment));

@@ -15,7 +15,7 @@ const isRefundContainer = e => e?.reimbursementChildren!==undefined;
 export const isPayrollLoan = e => e?.kind==='loan'&&typeof e.payrollMonth==='string';
 const salaryMonth = salary => salary.salaryMonth||salary.date.slice(0,7);
 const payrollTotal = (state,salary) => state.events.filter(e=>isPayrollLoan(e)&&e.payrollMonth===salaryMonth(salary)&&e.status!=='void').reduce((n,e)=>n+e.amount,0);
-function refreshPayrollForecasts(state){
+export function refreshPayrollForecasts(state){
   for(const salary of state.events.filter(e=>e.kind==='salary'&&e.direction==='in'&&e.status==='planned'&&e.date)){
     const deductions=payrollTotal(state,salary);if(!deductions&&salary.beforePayrollAmount===undefined)continue;
     salary.salaryMonth??=salary.date.slice(0,7);salary.beforePayrollAmount??=salary.amount;
@@ -93,6 +93,7 @@ export function firstCardDueDate(purchaseDate,card){
   return due;
 }
 const searchable=text=>String(text).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+const sourceProjectionMonth=state=>state.settings.sourceProjectionMonth||state.history.map(r=>r.month).filter(Boolean).sort().at(-1);
 export function categoryName(value){const raw=String(value||'Outros').trim();return ({'alimentacao':'Alimentação','alimentacao fora':'Alimentação','combustivel':'Combustível','vestiario':'Vestuário','vestuario':'Vestuário'})[searchable(raw)]||raw||'Outros';}
 export function groupExpenses(rows){
   const groups=new Map();
@@ -108,7 +109,7 @@ export function groupExpenses(rows){
 }
 export function expensesForMonth(state,month,person='Todos',search=''){
   const rows=state.history.filter(r=>r.month===month).map(r=>({...r,origin:'source',payment:r.account}));
-  const lastMonth=state.history.map(r=>r.month).filter(Boolean).sort().at(-1);
+  const lastMonth=sourceProjectionMonth(state);
   if(lastMonth&&month>lastMonth){
     const delta=(Number(month.slice(0,4))-Number(lastMonth.slice(0,4)))*12+Number(month.slice(5,7))-Number(lastMonth.slice(5,7));
     for(const r of state.history.filter(r=>r.month===lastMonth&&r.type==='Cartão'&&Number.isInteger(r.part)&&Number.isInteger(r.parts)&&r.part>0&&r.parts>1)){
@@ -125,9 +126,11 @@ export function expensesForMonth(state,month,person='Todos',search=''){
   const expanded=rows.map(r=>{
     if(!['source','source-projection'].includes(r.origin))return r;
     const e=sourcePaymentEvent(state,r),payment=e?.itemPayments?.find(p=>p.key===r.id);
+    if(state.settings.excludedSourceItems?.includes(r.id))return null;
+    if(e?.sourceItemAmounts?.[r.id]!==undefined)r={...r,amount:e.sourceItemAmounts[r.id],originalAmount:e.sourceItemAmounts[r.id]/100};
     if(e?.kind==='fixed'&&e.amount!==r.amount)r={...r,amount:e.amount,originalAmount:e.amount/100};
     return payment?{...r,status:'paid',paidDate:payment.paidDate,paymentEventId:e.id}:e&&['paid','covered'].includes(e.status)?{...r,status:e.status,paidDate:e.paidDate,paymentEventId:e.id}:e?{...r,paymentEventId:e.id}:r;
-  }).flatMap(r=>{
+  }).filter(Boolean).flatMap(r=>{
     if(!r.split)return [r];
     const own=Math.floor(r.split.myAmount/(r.parts||1))+((r.part||1)<=r.split.myAmount%(r.parts||1)?1:0);
     const myAmount=r.part?own:r.split.myAmount,otherAmount=r.amount-myAmount;
@@ -210,7 +213,7 @@ function sourcePaymentEvent(state,row){
   const original=state.history.find(r=>r.id===(row.sourceId||row.id));if(!original)return null;
   if(original.type==='Fixa')return state.events.find(e=>e.id===`fixed-current-${original.row}`&&row.month===original.month)||null;
   if(original.type!=='Cartão')return null;
-  const month=monthDate(row.month+'-01',1).slice(0,7),lastMonth=state.history.map(r=>r.month).filter(Boolean).sort().at(-1);if(row.month<lastMonth)return null;
+  const month=monthDate(row.month+'-01',1).slice(0,7),lastMonth=sourceProjectionMonth(state);if(row.month<lastMonth)return null;
   const stableIds=row.month===lastMonth?[`nubank-${original.row}`,`invoice-${original.account}`,...(original.account==='BRADESCO'?['camila-bradesco']:[])]:[`install-${month}-${original.account}`];
   const stable=state.events.find(e=>stableIds.includes(e.id)&&e.source==='source'&&e.direction==='out'&&e.account===original.account);if(stable)return stable;
   const candidates=state.events.filter(e=>e.source==='source'&&e.direction==='out'&&e.account===original.account&&(e.date?e.date.slice(0,7):e.month)===month);
@@ -265,6 +268,8 @@ export function payBill(state,id,month,date=todayBR()){
 }
 function ensureExpenseRefund(state,row){
   const person=otherPerson(row);if(!person||row.type!=='expense'||isPayrollLoan(row)||reimbursementForExpense(state,row))return;
+  const suppressedKey=row.purchaseId?'purchase:'+row.purchaseId:JSON.stringify([expenseKey(state,row),expenseMonth(row),person]);
+  if(state.settings.suppressedRefunds?.includes(suppressedKey))return;
   // Old undivided settlements must be reconciled before opening another claim.
   if(state.events.some(e=>e.kind==='reimbursement'&&e.source==='source'&&e.person===person&&!e.expenseKey&&!e.purchaseId&&e.status!=='void'))return;
   const month=expenseMonth(row),key=expenseKey(state,row);if(!month||!key)return;
@@ -275,7 +280,7 @@ function ensureRefundsForEvent(state,event){
   const months=new Set([...state.history.map(r=>r.month),event.month,event.date?.slice(0,7),event.date?monthDate(event.date,-1).slice(0,7):'']);
   for(const month of months)if(/^\d{4}-\d{2}$/.test(month||''))for(const row of ledgerForMonth(state,month,{type:'expense'}))if(row.eventId===event.id||row.paymentEventId===event.id)ensureExpenseRefund(state,row);
 }
-function sourceItemAmounts(state,month){
+export function sourceItemAmounts(state,month){
  const groups=new Map(),amounts=new Map();
  for(const r of expensesForMonth(state,month).filter(r=>['source','source-projection'].includes(r.origin))){
    const e=sourcePaymentEvent(state,r);if(!e)continue;if(!groups.has(e.id))groups.set(e.id,[]);
@@ -355,6 +360,12 @@ export function validateState(s){
   const date=(d,blank=false)=>{if(blank&&d==='')return;if(typeof d!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(d)||isNaN(Date.parse(d+'T12:00:00Z')))throw new Error('Data inválida.');};
   cents(s.settings.balance);cents(s.settings.essentials,true);cents(s.settings.safety);cents(s.settings.monthlyLimit,true);if(s.settings.essentials<0||s.settings.safety<0||s.settings.monthlyLimit<0)throw new Error('Provisões devem ser positivas ou zero.');date(s.settings.asOf);
   if(!s.settings.benefits)throw new Error('Benefícios ausentes.');for(const n of Object.values(s.settings.benefits))cents(n,true);
+  if(s.settings.sourceProjectionMonth!==undefined&&!/^\d{4}-(0[1-9]|1[0-2])$/.test(s.settings.sourceProjectionMonth))throw new Error('Competência de projeção inválida.');
+  if(s.settings.suppressedRefunds!==undefined&&(!Array.isArray(s.settings.suppressedRefunds)||s.settings.suppressedRefunds.length>15000||new Set(s.settings.suppressedRefunds).size!==s.settings.suppressedRefunds.length||s.settings.suppressedRefunds.some(key=>typeof key!=='string'||!key||key.length>1000)))throw new Error('Exclusões de reembolsos inválidas.');
+  if(s.settings.excludedSourceItems!==undefined&&(!Array.isArray(s.settings.excludedSourceItems)||s.settings.excludedSourceItems.length>15000||new Set(s.settings.excludedSourceItems).size!==s.settings.excludedSourceItems.length||s.settings.excludedSourceItems.some(id=>typeof id!=='string'||!/^projection-.+-\d{4}-(0[1-9]|1[0-2])$/.test(id))))throw new Error('Exclusões de parcelas inválidas.');
+  for(const e of s.events){
+    if(e.sourceItemAmounts!==undefined){if(e.source!=='source'||e.direction!=='out'||!e.sourceItemAmounts||typeof e.sourceItemAmounts!=='object'||Array.isArray(e.sourceItemAmounts)||Object.keys(e.sourceItemAmounts).length>10000)throw new Error('Valores de itens inválidos.');for(const amount of Object.values(e.sourceItemAmounts)){cents(amount);if(amount<=0)throw new Error('Valor do item inválido.');}}
+  }
   if(s.settings.cards!==undefined){
     if(!Array.isArray(s.settings.cards)||s.settings.cards.length>100)throw new Error('Cadastro de cartões inválido.');
     const cardIds=new Set();for(const c of s.settings.cards){if(!c||typeof c.id!=='string'||!/^[\p{L}\p{N}][\p{L}\p{N}:_-]{0,99}$/u.test(c.id)||!isCard(c.id)||cardIds.has(c.id)||typeof c.name!=='string'||!c.name.trim()||c.name.length>80||(c.dueDay!==null&&!validCardDay(c.dueDay))||(c.closingDay!==null&&!validCardDay(c.closingDay))||(c.archived!==undefined&&typeof c.archived!=='boolean'))throw new Error('Confira nome, vencimento e fechamento dos cartões.');cardIds.add(c.id);}
@@ -468,7 +479,7 @@ export function monthOverview(state,month){
   const rows=ledgerForMonth(state,month),own=ledgerForMonth(state,month,{person:'JEFFERSON',type:'expense'}).filter(r=>!['VR','VA'].includes(r.payment));
   const certain=r=>['paid','covered'].includes(r.status)||r.confirmed===true&&!!r.date;
   const income=rows.filter(r=>r.type==='income'&&r.kind!=='reimbursement');
-  const source=state.history.filter(r=>r.month===month);
+  const source=expensesForMonth(state,month).filter(r=>r.origin==='source');
   return {balance:state.settings.balance,income:income.filter(certain).reduce((n,r)=>n+r.amount,0),pendingIncome:income.filter(r=>!certain(r)).reduce((n,r)=>n+r.amount,0),
     personalExpenses:historyTotal(own.map(r=>({...r,amount:r.displayAmount,originalAmount:r.isSplit?undefined:r.originalAmount}))),
     sharedExpenses:historyTotal(rows.filter(r=>r.type==='expense'&&r.person==='Compartilhado')),

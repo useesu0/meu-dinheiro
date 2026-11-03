@@ -1,4 +1,4 @@
-import {clone,validateState,ledgerForMonth,sourceItemAmounts,reimbursementForExpense,splitReimbursement,monthDate,itemPaidTotal,restoreEvent,refreshPayrollForecasts} from './finance.mjs';
+import {clone,validateState,ledgerForMonth,sourceItemAmounts,reimbursementForExpense,splitReimbursement,monthDate,itemPaidTotal,restoreEvent,refreshPayrollForecasts,sourceIncludedAmount} from './finance.mjs';
 
 const monthOf=e=>e.month||e.date?.slice(0,7);
 const isLegacyBill=e=>e.source==='source'&&['invoice','installments','settlement','agreement'].includes(e.kind);
@@ -59,12 +59,11 @@ export function prepareDeletion(state,target){
  }
  for(const {event:e,removed,all} of groups.values()){
   const removedTotal=[...removed.values()].reduce((n,r)=>n+r.amount,0);if(removedTotal>e.amount)throw new Error('Os itens não conferem com a fatura. Confira na Agenda antes de excluir.');
-  const cash=[...removed].reduce((n,[key,{amount}])=>n+(e.status==='paid'?amount:e.itemPayments?.find(p=>p.key===key)?.amount||0),0);
+  const cash=[...removed].reduce((n,[key,{row,amount}])=>n+(e.itemPayments?.find(p=>p.key===key)?.amount||(e.status==='paid'&&(row.sourceStatus!=='Pago'||e.applied===-e.amount)?amount:0)),0);
   e.amount-=removedTotal;s.settings.balance+=cash;e.applied=(e.applied||0)+cash;
   if(e.amount===0){events.add(e.id);continue;}
   e.sourceItemAmounts=Object.fromEntries([...all].filter(([key])=>!removed.has(key)));
   e.itemPayments=(e.itemPayments||[]).filter(p=>!removed.has(p.key));if(!e.itemPayments.length)delete e.itemPayments;
-  if(['planned','deferred'].includes(e.status)&&itemPaidTotal(e)===e.amount){e.previousStatus??=e.status;e.status='paid';e.paidDate=e.itemPayments?.at(-1)?.paidDate;}
  }
  const excluded=[...rows.values()].filter(row=>row.origin==='source-projection'&&!history.has(row.sourceId)).map(row=>row.id);
  if(excluded.length)s.settings.excludedSourceItems=[...new Set([...(s.settings.excludedSourceItems||[]),...excluded])];
@@ -76,6 +75,11 @@ export function prepareDeletion(state,target){
  }
  s.events=s.events.filter(e=>!events.has(e.id));s.purchases=s.purchases.filter(p=>!purchases.has(p.id));
  if(history.size){s.settings.sourceProjectionMonth??=s.history.map(r=>r.month).sort().at(-1);s.history=s.history.filter(r=>!history.has(r.id));}
+ for(const id of groups.keys()){
+  const e=s.events.find(e=>e.id===id);if(!e||!['planned','deferred'].includes(e.status))continue;
+  const paid=itemPaidTotal(e),included=sourceIncludedAmount(s,e);
+  if(paid+included===e.amount){e.previousStatus??=e.status;e.status=paid?'paid':'covered';if(paid)e.paidDate=e.itemPayments.at(-1).paidDate;}
+ }
  for(const parent of [...s.events].filter(e=>e.reimbursementChildren)){
   parent.reimbursementChildren=parent.reimbursementChildren.filter(id=>s.events.some(e=>e.id===id));
   if(!parent.reimbursementChildren.length)s.events=s.events.filter(e=>e.id!==parent.id);

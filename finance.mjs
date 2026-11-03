@@ -10,7 +10,7 @@ export function parseMoney(value){
 export const salaryForMonth = (month,parameters={}) => (parameters.base||0)+(month<(parameters.benefitEnd||'')?(parameters.benefit||0):0);
 export const historyTotal = rows => Math.round(rows.reduce((n,r)=>n+Math.round((r.originalAmount??r.amount/100)*1000),0)/10);
 export const itemPaidTotal = e => (e.itemPayments||[]).reduce((n,p)=>n+p.amount,0);
-export const outstandingAmount = e => Math.max(0,e.amount-itemPaidTotal(e));
+export const outstandingAmount = (e,state) => Math.max(0,e.amount-itemPaidTotal(e)-sourceIncludedAmount(state,e));
 const isRefundContainer = e => e?.reimbursementChildren!==undefined;
 export const isPayrollLoan = e => e?.kind==='loan'&&typeof e.payrollMonth==='string';
 const salaryMonth = salary => salary.salaryMonth||salary.date.slice(0,7);
@@ -52,10 +52,10 @@ export function dashboard(state,today=todayBR(),until=previousDay(nextPayday(sta
   let balance=state.settings.balance, minimum=balance, income=0,expenses=0;
   const events=state.events.filter(e=>!isPayrollLoan(e)&&e.status==='planned'&&e.date&&e.date<=until&&(e.direction==='out'||e.confirmed)).sort((a,b)=>a.date.localeCompare(b.date)||(a.direction==='out'?-1:1));
   const daily=[{date:today,balance}];
-  for(const e of events){const amount=e.direction==='in'?e.amount:-outstandingAmount(e);balance+=amount;if(amount>0)income+=amount;else expenses-=amount;minimum=Math.min(minimum,balance);daily.push({date:e.date<today?today:e.date,balance});}
-  const deferred=state.events.filter(e=>!isPayrollLoan(e)&&e.direction==='out'&&e.status==='deferred').reduce((n,e)=>n+outstandingAmount(e),0);
-  const undated=state.events.filter(e=>!isPayrollLoan(e)&&e.direction==='out'&&e.status==='planned'&&!e.date).reduce((n,e)=>n+outstandingAmount(e),0);
-  const newCredit=state.events.filter(e=>e.direction==='out'&&e.status==='planned'&&e.source==='quick'&&e.date>until).reduce((n,e)=>n+outstandingAmount(e),0);
+  for(const e of events){const amount=e.direction==='in'?e.amount:-outstandingAmount(e,state);balance+=amount;if(amount>0)income+=amount;else expenses-=amount;minimum=Math.min(minimum,balance);daily.push({date:e.date<today?today:e.date,balance});}
+  const deferred=state.events.filter(e=>!isPayrollLoan(e)&&e.direction==='out'&&e.status==='deferred').reduce((n,e)=>n+outstandingAmount(e,state),0);
+  const undated=state.events.filter(e=>!isPayrollLoan(e)&&e.direction==='out'&&e.status==='planned'&&!e.date).reduce((n,e)=>n+outstandingAmount(e,state),0);
+  const newCredit=state.events.filter(e=>e.direction==='out'&&e.status==='planned'&&e.source==='quick'&&e.date>until).reduce((n,e)=>n+outstandingAmount(e,state),0);
   const essentials=state.settings.essentials, safety=state.settings.safety||0;
   const potential=Math.max(0,minimum-deferred-undated-newCredit-(essentials||0)-safety);
   const incomplete=!state.settings.reconciled||essentials===null;
@@ -144,7 +144,7 @@ export function agendaForMonth(state,month,status='open',person='Todos'){
   return state.events.filter(e=>!isRefundContainer(e)).filter(e=>status==='deferred'?e.status==='deferred':status==='closed'?['paid','covered','void'].includes(e.status):e.status==='planned')
     .filter(e=>status==='deferred'||!e.date||e.date.startsWith(month))
     .filter(e=>person==='Todos'||(e.person||'JEFFERSON')===person)
-    .map(e=>e.itemPayments?.length&&['planned','deferred'].includes(e.status)?{...e,amount:outstandingAmount(e),partialPaid:itemPaidTotal(e),fullAmount:e.amount}:e)
+    .map(e=>(e.itemPayments?.length||sourceIncludedAmount(state,e)>0)&&['planned','deferred'].includes(e.status)?{...e,amount:outstandingAmount(e,state),partialPaid:itemPaidTotal(e),alreadyIncluded:sourceIncludedAmount(state,e),fullAmount:e.amount}:e)
     .sort((a,b)=>(a.date||'0000').localeCompare(b.date||'0000'));
 }
 export function addPurchase(state,input){
@@ -172,7 +172,7 @@ export function addPurchase(state,input){
   if(split?.otherAmount>0&&input.split.received)return settleEvent(s,`reimbursement-${p.id}`,p.date);
   return s;
 }
-export function settleEvent(state,id,date=todayBR(),alreadyIncluded=false){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||isRefundContainer(e)||!['planned','deferred'].includes(e.status))throw new Error('Este compromisso já foi conciliado ou o acerto foi individualizado.');if(isPayrollLoan(e)&&!alreadyIncluded)throw new Error('Desconto em folha: registre o salário líquido recebido ou confirme que o desconto já está incluído.');e.previousStatus=e.previousStatus||e.status;const applied=alreadyIncluded?0:(e.direction==='in'?e.amount:-outstandingAmount(e));e.status=alreadyIncluded?'covered':'paid';e.paidDate=date;e.applied=(e.applied||0)+applied;s.settings.balance+=applied;coverPayrollLoans(s,e,date);if(e.direction==='out'&&!isPayrollLoan(e))ensureRefundsForEvent(s,e);return s;}
+export function settleEvent(state,id,date=todayBR(),alreadyIncluded=false){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||isRefundContainer(e)||!['planned','deferred'].includes(e.status))throw new Error('Este compromisso já foi conciliado ou o acerto foi individualizado.');if(isPayrollLoan(e)&&!alreadyIncluded)throw new Error('Desconto em folha: registre o salário líquido recebido ou confirme que o desconto já está incluído.');e.previousStatus=e.previousStatus||e.status;const applied=alreadyIncluded?0:(e.direction==='in'?e.amount:-outstandingAmount(e,s));e.status=alreadyIncluded?'covered':'paid';e.paidDate=date;e.applied=(e.applied||0)+applied;s.settings.balance+=applied;coverPayrollLoans(s,e,date);if(e.direction==='out'&&!isPayrollLoan(e))ensureRefundsForEvent(s,e);return s;}
 export function restoreEvent(state,id){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||isRefundContainer(e)||!['paid','covered'].includes(e.status)&&!e.itemPayments?.length)throw new Error('Compromisso não conciliado ou acerto já individualizado.');if(e.payrollAutoSalaryId)throw new Error('Este desconto em folha foi conciliado com o salário. Reabra o salário correspondente primeiro.');for(const loan of s.events.filter(r=>r.payrollAutoSalaryId===id)){loan.status=loan.previousStatus||'planned';delete loan.applied;delete loan.paidDate;delete loan.previousStatus;delete loan.payrollAutoSalaryId;}s.settings.balance-=e.applied||0;e.status=e.previousStatus||'planned';delete e.applied;delete e.paidDate;delete e.itemPayments;delete e.previousStatus;return s;}
 const editableEvent=e=>e&&['planned','deferred'].includes(e.status)&&!e.itemPayments?.length;
 function recurrenceKey(e){
@@ -293,6 +293,12 @@ export function sourceItemAmounts(state,month){
  }
  return amounts;
 }
+export function sourceIncludedAmount(state,event){
+  if(!state||event?.source!=='source'||event.direction!=='out')return 0;
+  const rows=state.history.filter(r=>r.type==='Cartão'&&r.account===event.account&&r.sourceStatus==='Pago'&&!event.itemPayments?.some(p=>p.key===r.id)&&sourcePaymentEvent(state,r)?.id===event.id),months=new Map();let total=0;
+  for(const row of rows){if(!months.has(row.month))months.set(row.month,sourceItemAmounts(state,row.month));const item=months.get(row.month).get(row.id);if(item?.eventId===event.id)total+=item.amount;}
+  return total;
+}
 export function paymentsForRows(state,rows){
   const output=new Map(),sourceMonths=new Map();
   for(const row of rows){
@@ -300,11 +306,11 @@ export function paymentsForRows(state,rows){
     if(['source','source-projection'].includes(row.origin)){
       if(!sourceMonths.has(row.month))sourceMonths.set(row.month,sourceItemAmounts(state,row.month));
       const e=sourcePaymentEvent(state,row),amount=sourceMonths.get(row.month).get(row.id)?.amount;
-      if(!e||!['planned','deferred'].includes(e.status)||e.itemPayments?.some(p=>p.key===row.id)||!amount||amount>outstandingAmount(e))continue;
+      if(!e||!['planned','deferred'].includes(e.status)||e.itemPayments?.some(p=>p.key===row.id)||!amount||amount>outstandingAmount(e,state))continue;
       output.set(row.id,{id:row.id,eventId:e.id,item:true,amount,description:row.description,account:e.account,paymentMonth:e.date?e.date.slice(0,7):e.month});
     }else{
       const e=state.events.find(e=>e.id===(row.eventId||row.id));
-      if(e?.direction==='out'&&['planned','deferred'].includes(e.status)&&outstandingAmount(e)>0)output.set(e.id,{...e,eventId:e.id,amount:outstandingAmount(e),item:false});
+      if(e?.direction==='out'&&['planned','deferred'].includes(e.status)&&outstandingAmount(e,state)>0)output.set(e.id,{...e,eventId:e.id,amount:outstandingAmount(e,state),item:false});
     }
   }
   return [...output.values()];
@@ -322,14 +328,14 @@ export function payExpenses(state,ids,month,date=todayBR()){
     const e=state.events.find(e=>e.id===id);
     const known=[...sourceAmounts.values()].filter(r=>r.eventId===id).reduce((n,r)=>n+r.amount,0);
     if(entries.some(r=>r.item)&&known>e.amount)throw new Error('O valor da fatura é menor que a soma dos itens. Confira a fatura na Agenda antes de pagar os itens.');
-    if(entries.reduce((n,r)=>n+r.amount,0)>outstandingAmount(e))throw new Error('Os itens ultrapassam o restante da fatura. Confira o valor na Agenda.');
+    if(entries.reduce((n,r)=>n+r.amount,0)>outstandingAmount(e,state))throw new Error('Os itens ultrapassam o restante da fatura. Confira o valor na Agenda.');
   }
   const s=clone(state);
   for(const [id,entries] of groups){
     const e=s.events.find(e=>e.id===id),total=entries.reduce((n,r)=>n+r.amount,0);e.previousStatus=e.previousStatus||e.status;
     for(const item of entries.filter(r=>r.item)){e.itemPayments??=[];e.itemPayments.push({key:item.id,amount:item.amount,paidDate:date});}
     e.applied=(e.applied||0)-total;s.settings.balance-=total;
-    if(entries.some(r=>!r.item)||outstandingAmount(e)===0){e.status='paid';e.paidDate=date;}
+    if(entries.some(r=>!r.item)||outstandingAmount(e,s)===0){e.status='paid';e.paidDate=date;}
   }
   const selectedRows=new Set(ids);for(const row of ledgerForMonth(s,month,{type:'expense'}))if(selectedRows.has(row.id)||selectedRows.has(row.eventId))ensureExpenseRefund(s,row);
   validateState(s);return s;
@@ -405,7 +411,7 @@ export function validateState(s){
       const canonical=paymentMonths.get(month).get(p.key);
       if(!canonical||canonical.eventId!==e.id||canonical.amount!==p.amount)throw new Error('Pagamento não corresponde ao item e à fatura de origem.');
     }
-    const paid=itemPaidTotal(e),open=['planned','deferred'].includes(e.status);if(paid>e.amount||paid>-(e.applied||0)||Math.abs(e.applied||0)>e.amount||open&&(e.applied!==-paid||paid>=e.amount)||e.status==='covered'&&e.applied!==-paid||e.status==='paid'&&e.applied!==-e.amount)throw new Error('Pagamentos dos itens não conferem com a fatura.');
+    const paid=itemPaidTotal(e),included=sourceIncludedAmount(s,e),open=['planned','deferred'].includes(e.status);if(paid>e.amount||paid>-(e.applied||0)||Math.abs(e.applied||0)>e.amount||open&&(e.applied!==-paid||paid+included>=e.amount)||e.status==='covered'&&e.applied!==-paid||e.status==='paid'&&e.applied!==-e.amount&&e.applied!==-(e.amount-included))throw new Error('Pagamentos dos itens não conferem com a fatura.');
   }
   const purchases=new Set();for(const p of s.purchases){if(typeof p.id!=='string'||purchases.has(p.id))throw new Error('Lançamento duplicado.');purchases.add(p.id);cents(p.amount);date(p.date);if(p.amount<=0||![...PAYMENTS,...cardsForState(s,{includeArchived:true}).map(c=>c.id)].includes(p.payment)||typeof p.description!=='string'||p.description.length>500)throw new Error('Lançamento inválido.');if(p.split){const v=p.split;if(typeof v.person!=='string'||!v.person.trim()||v.person==='JEFFERSON'||v.person.length>80||!Number.isFinite(v.percent)||v.percent<0||v.percent>100||!Number.isSafeInteger(v.myAmount)||!Number.isSafeInteger(v.otherAmount)||v.myAmount<0||v.otherAmount<0||v.myAmount+v.otherAmount!==p.amount)throw new Error('Divisão inválida no backup.');}}
   return s;
@@ -458,8 +464,9 @@ export function cardPaymentDetails(state,month,cardId){
   const pending=detail.rows.filter(r=>r.detailAmount>0&&!['paid','covered','void'].includes(r.status)&&r.sourceStatus!=='Pago');
   const payments=paymentsForRows(state,pending),groups=new Map();
   for(const p of payments)groups.set(p.eventId,(groups.get(p.eventId)||0)+p.amount);
-  const blocked=pending.some(r=>!payments.some(p=>p.id===r.id||p.id===r.eventId))||[...groups].some(([id,total])=>total!==outstandingAmount(state.events.find(e=>e.id===id)));
-  return {...detail,month,cardId,pending,payments,total:payments.reduce((n,p)=>n+p.amount,0),blocked};
+  const blocked=pending.some(r=>!payments.some(p=>p.id===r.id||p.id===r.eventId))||[...groups].some(([id,total])=>total!==outstandingAmount(state.events.find(e=>e.id===id),state));
+  const linkedIds=new Set(detail.rows.map(r=>r.paymentEventId).filter(Boolean)),included=state.events.filter(e=>linkedIds.has(e.id)).reduce((n,e)=>n+sourceIncludedAmount(state,e),0);
+  return {...detail,month,cardId,pending,payments,total:payments.reduce((n,p)=>n+p.amount,0),included,blocked};
 }
 export function payCard(state,month,cardId,date=todayBR()){
   const detail=cardPaymentDetails(state,month,cardId);

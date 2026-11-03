@@ -1,4 +1,4 @@
-const CACHE='meu-dinheiro-v3.0.4';
+const CACHE='meu-dinheiro-v3.0.5';
 // Cache somente dos arquivos do programa. Requisições ao banco online não são armazenadas.
 const FILES=['./','./index.html','./style.css','./app.js','./finance.mjs','./deletions.mjs','./storage.mjs','./legacy.mjs','./cloud-store.mjs','./cloud-session.mjs','./firebase-config.mjs','./firebase-app-compat.js','./firebase-auth-compat.js','./firebase-firestore-compat.js','./reports.mjs','./exceljs.min.js','./jspdf.umd.min.js','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES.map(file=>new Request(file,{cache:'reload'})))).then(()=>self.skipWaiting())));

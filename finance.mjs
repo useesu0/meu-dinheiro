@@ -447,7 +447,7 @@ export function ledgerForMonth(state,month,filters={}){
   }).sort((a,b)=>(b.date||month+'-01').localeCompare(a.date||month+'-01'));
 }
 
-function detailExpenseRows(rows,total){
+export function detailExpenseRows(rows,total){
   const values=rows.map((row,index)=>{const mills=Math.round((row.originalAmount??row.amount/100)*1000);return {row,index,mills,amount:Math.floor(mills/10)};});
   let remaining=total-values.reduce((n,r)=>n+r.amount,0);
   for(const value of [...values].sort((a,b)=>(b.mills-b.amount*10)-(a.mills-a.amount*10)||a.index-b.index))if(remaining>0){value.amount++;remaining--;}

@@ -1,9 +1,9 @@
 import {analysisGroups,installmentDetails,money} from './finance.mjs';
 
 const modeNames={category:'Categoria',bank:'Cartão/Banco',person:'Por pessoa'};
-export function buildAnalysisReport(state,month,mode,person){
+export function buildAnalysisReport(state,month,mode,person,selectedGroups){
  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))throw new Error('Selecione um mês válido.');
- const groups=analysisGroups(state,month,mode,person);
+ const groups=selectedGroups??analysisGroups(state,month,mode,person);
  return {month,period:new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(month+'-01T12:00:00Z')),mode,grouping:modeNames[mode],person:mode==='person'?'Todos':person,total:groups.reduce((n,g)=>n+g.amount,0),groups:groups.map(g=>({name:g.category,amount:g.amount})),rows:groups.flatMap(g=>g.rows.map(row=>{
    const part=installmentDetails(state,row),paid=['paid','covered'].includes(row.status)||row.sourceStatus==='Pago';
    return {group:g.category,date:row.date||row.month||month,description:row.description||'Despesa',person:row.analysisPerson||(row.isSplit?Object.keys(row.shares).filter(p=>row.shares[p]!==0).join(' + '):row.person||'JEFFERSON'),bank:row.bank||row.payment,category:row.expenseCategory||row.category,installment:part&&!part.grouped?`${part.part}/${part.parts}`:'',status:paid?'Paga':row.status==='deferred'?'Adiada':row.projection?'Prevista':row.status==='planned'||row.sourceStatus==='Aberto'?'A pagar':'Registrada',amount:row.detailAmount};

@@ -50,7 +50,7 @@ export function nextPayday(state,today){const e=state.events.filter(e=>e.kind===
 export function previousDay(date){const d=new Date(date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-1);return d.toISOString().slice(0,10);}
 export function dashboard(state,today=todayBR(),until=previousDay(nextPayday(state,today))){
   let balance=state.settings.balance, minimum=balance, income=0,expenses=0;
-  const events=state.events.filter(e=>!isPayrollLoan(e)&&e.status==='planned'&&e.date&&e.date<=until&&(e.direction==='out'||e.confirmed)).sort((a,b)=>a.date.localeCompare(b.date)||(a.direction==='out'?-1:1));
+  const events=state.events.filter(e=>!isPayrollLoan(e)&&!isOwnerCardRefund(state,e)&&e.status==='planned'&&e.date&&e.date<=until&&(e.direction==='out'||e.confirmed)).sort((a,b)=>a.date.localeCompare(b.date)||(a.direction==='out'?-1:1));
   const daily=[{date:today,balance}];
   for(const e of events){const amount=e.direction==='in'?e.amount:-outstandingAmount(e,state);balance+=amount;if(amount>0)income+=amount;else expenses-=amount;minimum=Math.min(minimum,balance);daily.push({date:e.date<today?today:e.date,balance});}
   const deferred=state.events.filter(e=>!isPayrollLoan(e)&&e.direction==='out'&&e.status==='deferred').reduce((n,e)=>n+outstandingAmount(e,state),0);
@@ -141,7 +141,7 @@ export function expensesForMonth(state,month,person='Todos',search=''){
   return expanded.filter(r=>(person==='Todos'||r.person===person)&&(!query||searchable(`${r.description} ${r.category} ${categoryName(r.category)}`).includes(query)));
 }
 export function agendaForMonth(state,month,status='open',person='Todos'){
-  return state.events.filter(e=>!isRefundContainer(e)).filter(e=>status==='deferred'?e.status==='deferred':status==='closed'?['paid','covered','void'].includes(e.status):e.status==='planned')
+  return state.events.filter(e=>!isRefundContainer(e)&&!(e.status==='planned'&&isOwnerCardRefund(state,e))).filter(e=>status==='deferred'?e.status==='deferred':status==='closed'?['paid','covered','void'].includes(e.status):e.status==='planned')
     .filter(e=>status==='deferred'||!e.date||e.date.startsWith(month))
     .filter(e=>person==='Todos'||(e.person||'JEFFERSON')===person)
     .map(e=>(e.itemPayments?.length||sourceIncludedAmount(state,e)>0)&&['planned','deferred'].includes(e.status)?{...e,amount:outstandingAmount(e,state),partialPaid:itemPaidTotal(e),alreadyIncluded:sourceIncludedAmount(state,e),fullAmount:e.amount}:e)
@@ -168,11 +168,11 @@ export function addPurchase(state,input){
   if(['VR','VA'].includes(p.payment)){if(s.settings.benefits[p.payment]!==null)s.settings.benefits[p.payment]-=p.amount;}
   else if(!isCard(p.payment))s.settings.balance-=p.amount;
   else {const v=Math.floor(p.amount/count),rest=p.amount%count;for(let i=0;i<count;i++)s.events.push({id:`purchase-${p.id}-${i}`,purchaseId:p.id,date:dateOnDay(monthDate(p.dueDate,i).slice(0,7),p.billingDay),description:`${p.description}${count>1?` · ${i+1}/${count}`:''}`,amount:v+(i<rest?1:0),direction:'out',status:'planned',confirmed:true,source:'quick',kind:'card',account:p.payment,person:split?'Compartilhado':p.person,category:p.category});}
-  if((split?.otherAmount>0||p.person!=='JEFFERSON')&&!['VR','VA'].includes(p.payment))s.events.push({id:`reimbursement-${p.id}`,purchaseId:p.id,date:p.reimbursementDate||'',description:`${split?.person||p.person} · reembolso de ${p.description}`,amount:split?.otherAmount??p.amount,direction:'in',status:'planned',confirmed:!!p.reimbursementDate,source:'quick',kind:'reimbursement',person:split?.person||p.person,account:'Conta'});
-  if(split?.otherAmount>0&&input.split.received)return settleEvent(s,`reimbursement-${p.id}`,p.date);
+  if((split?.otherAmount>0||p.person!=='JEFFERSON')&&!['VR','VA'].includes(p.payment)&&!isOwnerCardDivision(s,p))s.events.push({id:`reimbursement-${p.id}`,purchaseId:p.id,date:p.reimbursementDate||'',description:`${split?.person||p.person} · reembolso de ${p.description}`,amount:split?.otherAmount??p.amount,direction:'in',status:'planned',confirmed:!!p.reimbursementDate,source:'quick',kind:'reimbursement',person:split?.person||p.person,account:'Conta'});
+  if(split?.otherAmount>0&&input.split.received&&!isOwnerCardDivision(s,p))return settleEvent(s,`reimbursement-${p.id}`,p.date);
   return s;
 }
-export function settleEvent(state,id,date=todayBR(),alreadyIncluded=false){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||isRefundContainer(e)||!['planned','deferred'].includes(e.status))throw new Error('Este compromisso já foi conciliado ou o acerto foi individualizado.');if(isPayrollLoan(e)&&!alreadyIncluded)throw new Error('Desconto em folha: registre o salário líquido recebido ou confirme que o desconto já está incluído.');e.previousStatus=e.previousStatus||e.status;const applied=alreadyIncluded?0:(e.direction==='in'?e.amount:-outstandingAmount(e,s));e.status=alreadyIncluded?'covered':'paid';e.paidDate=date;e.applied=(e.applied||0)+applied;s.settings.balance+=applied;coverPayrollLoans(s,e,date);if(e.direction==='out'&&!isPayrollLoan(e))ensureRefundsForEvent(s,e);return s;}
+export function settleEvent(state,id,date=todayBR(),alreadyIncluded=false){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||isRefundContainer(e)||!['planned','deferred'].includes(e.status))throw new Error('Este compromisso já foi conciliado ou o acerto foi individualizado.');if(isOwnerCardRefund(s,e))throw new Error('Divisão no cartão da titular: não há reembolso a receber.');if(isPayrollLoan(e)&&!alreadyIncluded)throw new Error('Desconto em folha: registre o salário líquido recebido ou confirme que o desconto já está incluído.');e.previousStatus=e.previousStatus||e.status;const applied=alreadyIncluded?0:(e.direction==='in'?e.amount:-outstandingAmount(e,s));e.status=alreadyIncluded?'covered':'paid';e.paidDate=date;e.applied=(e.applied||0)+applied;s.settings.balance+=applied;coverPayrollLoans(s,e,date);if(e.direction==='out'&&!isPayrollLoan(e))ensureRefundsForEvent(s,e);return s;}
 export function restoreEvent(state,id){const s=clone(state),e=s.events.find(e=>e.id===id);if(!e||isRefundContainer(e)||!['paid','covered'].includes(e.status)&&!e.itemPayments?.length)throw new Error('Compromisso não conciliado ou acerto já individualizado.');if(e.payrollAutoSalaryId)throw new Error('Este desconto em folha foi conciliado com o salário. Reabra o salário correspondente primeiro.');for(const loan of s.events.filter(r=>r.payrollAutoSalaryId===id)){loan.status=loan.previousStatus||'planned';delete loan.applied;delete loan.paidDate;delete loan.previousStatus;delete loan.payrollAutoSalaryId;}s.settings.balance-=e.applied||0;e.status=e.previousStatus||'planned';delete e.applied;delete e.paidDate;delete e.itemPayments;delete e.previousStatus;return s;}
 const editableEvent=e=>e&&['planned','deferred'].includes(e.status)&&!e.itemPayments?.length;
 function recurrenceKey(e){
@@ -206,8 +206,20 @@ export function editEvent(state,input,scope='single'){
 }
 export function receiptsForRows(state,rows){
   const ids=new Set(rows.flatMap(r=>[r.eventId,r.reimbursementId,reimbursementForExpense(state,r)?.id]).filter(Boolean));
-  return state.events.filter(e=>ids.has(e.id)&&e.direction==='in'&&e.status==='planned');
+  return state.events.filter(e=>ids.has(e.id)&&e.direction==='in'&&e.status==='planned'&&!isOwnerCardRefund(state,e));
 }
+// Bradesco is Camila's card: her share is a division, not money owed to Jefferson.
+// Use the stable card ID, so renaming the card does not change this rule.
+export function isOwnerCardDivision(state,row){
+ const purchase=state?.purchases?.find(p=>p.id===(row?.purchaseId||row?.id))||row;
+ return purchase?.payment==='BRADESCO'&&String(purchase.split?.person||'').trim().toUpperCase()==='CAMILA';
+}
+export function isOwnerCardRefund(state,event){
+ if(event?.kind!=='reimbursement')return false;
+ const origin=event.purchaseId||state.events.find(e=>e.id===event.expenseKey)?.purchaseId;
+ return !!origin&&isOwnerCardDivision(state,{purchaseId:origin});
+}
+export const pendingReimbursements=state=>state.events.filter(e=>e.kind==='reimbursement'&&e.status==='planned'&&!isOwnerCardRefund(state,e));
 // A competência da planilha precede a fatura cadastrada na importação original.
 function sourcePaymentEvent(state,row){
   const original=state.history.find(r=>r.id===(row.sourceId||row.id));if(!original)return null;
@@ -228,7 +240,7 @@ const expenseKey = (state,row) => {
 const expenseMonth = row => row.month||row.date?.slice(0,7);
 const otherPerson = row => row.isSplit?row.split?.person:(row.person&& !['JEFFERSON','Compartilhado'].includes(row.person)?row.person:null);
 export function reimbursementForExpense(state,row){
-  if(!row||row.type!=='expense')return null;
+  if(!row||row.type!=='expense'||isOwnerCardDivision(state,row))return null;
   const key=expenseKey(state,row),month=expenseMonth(row),person=otherPerson(row);
   return state.events.find(e=>e.kind==='reimbursement'&&e.expenseKey===key&&e.expenseMonth===month&&e.person===person)
     ||state.events.find(e=>e.kind==='reimbursement'&&e.id===(row.reimbursementId||(row.purchaseId?`reimbursement-${row.purchaseId}`:'')))||null;
@@ -267,7 +279,7 @@ export function payBill(state,id,month,date=todayBR()){
   return payExpenses(state,details.payments.map(e=>e.id),month,date);
 }
 function ensureExpenseRefund(state,row){
-  const person=otherPerson(row);if(!person||row.type!=='expense'||isPayrollLoan(row)||reimbursementForExpense(state,row))return;
+  const person=otherPerson(row);if(!person||row.type!=='expense'||isPayrollLoan(row)||isOwnerCardDivision(state,row)||reimbursementForExpense(state,row))return;
   const suppressedKey=row.purchaseId?'purchase:'+row.purchaseId:JSON.stringify([expenseKey(state,row),expenseMonth(row),person]);
   if(state.settings.suppressedRefunds?.includes(suppressedKey))return;
   // Old undivided settlements must be reconciled before opening another claim.
@@ -354,7 +366,7 @@ export function receiveEvents(state,ids,date=todayBR()){
   if(!Array.isArray(ids)||!ids.length)throw new Error('Selecione pelo menos uma entrada pendente.');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date||'')||isNaN(Date.parse(date+'T12:00:00Z')))throw new Error('Data de recebimento inválida.');
   const selected=new Set(ids),events=new Map(state.events.map(e=>[e.id,e]));
-  for(const id of selected){const e=events.get(id);if(!e||e.direction!=='in'||e.status!=='planned')throw new Error('Uma entrada da seleção já foi conciliada ou não pode ser recebida. Revise a seleção.');}
+  for(const id of selected){const e=events.get(id);if(!e||e.direction!=='in'||e.status!=='planned'||isOwnerCardRefund(state,e))throw new Error('Uma entrada da seleção já foi conciliada ou não pode ser recebida. Revise a seleção.');}
   const s=clone(state);
   for(const e of s.events)if(selected.has(e.id)){e.previousStatus=e.status;e.status='paid';e.paidDate=date;e.applied=e.amount;s.settings.balance+=e.amount;coverPayrollLoans(s,e,date);}
   validateState(s);return s;
@@ -432,7 +444,7 @@ export function ledgerForMonth(state,month,filters={}){
   }
   const sourceMonth=state.history.some(r=>r.month===month);
   for(const e of state.events){
-    if(e.status==='void'||(e.date?e.date.slice(0,7):e.month)!==month||e.purchaseId&&e.direction==='out')continue;
+    if(e.status==='void'||e.status==='planned'&&isOwnerCardRefund(state,e)||(e.date?e.date.slice(0,7):e.month)!==month||e.purchaseId&&e.direction==='out')continue;
     if(e.direction==='out'&&e.source==='source'&&['invoice','installments','settlement','agreement'].includes(e.kind)&&state.history.some(r=>r.type==='Cartão'&&r.account===e.account))continue;
     if(e.direction==='out'&&e.source==='source'&&sourceMonth&&['invoice','fixed','agreement','installments','settlement'].includes(e.kind))continue;
     const person=e.person||'JEFFERSON';

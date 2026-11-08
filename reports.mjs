@@ -9,14 +9,16 @@ export function buildAnalysisReport(state,month,mode,person,selectedGroups){
    return {group:g.category,date:row.date||row.month||month,description:row.description||'Despesa',person:row.analysisPerson||(row.isSplit?Object.keys(row.shares).filter(p=>row.shares[p]!==0).join(' + '):row.person||'JEFFERSON'),bank:row.bank||row.payment,category:row.expenseCategory||row.category,installment:part&&!part.grouped?`${part.part}/${part.parts}`:'',status:paid?'Paga':row.status==='deferred'?'Adiada':row.projection?'Prevista':row.status==='planned'||row.sourceStatus==='Aberto'?'A pagar':'Registrada',amount:row.detailAmount};
  }))};
 }
-export const reportFilename=(report,ext)=>`despesas-${report.month}-${report.mode}-${report.person.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'-').slice(0,60)}.${ext}`;
+const filenamePart=text=>String(text).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'-').slice(0,60);
+export const reportFilename=(report,ext)=>`despesas-${report.month}-${report.mode}-${filenamePart(report.person)}${report.cardFilter&&report.cardFilter!=='ALL'?'-'+(report.cardFilter==='ALL_CARDS'?'todos-cartoes':filenamePart(report.cardLabel||report.cardFilter)):''}.${ext}`;
+const reportFilters=report=>`${report.period} | Pessoa: ${report.person} | ${report.grouping}${report.cardLabel?' | Cartão/banco: '+report.cardLabel:''}`;
 export const reportNote='Despesas do período, incluindo pagas e previstas. Valores das partes selecionadas; benefícios restritos fora do orçamento. Este relatório não representa o saldo da conta.';
 
 export async function excelReport(report,ExcelJS){
  const wb=new ExcelJS.Workbook();wb.creator='JLC';wb.title='Relatório de despesas';
  const summary=wb.addWorksheet('Resumo'),items=wb.addWorksheet('Itens');
  summary.columns=[{width:42},{width:22}];items.columns=[{width:24},{width:15},{width:46},{width:25},{width:24},{width:24},{width:12},{width:15},{width:19}];
- const title=(sheet,last)=>{sheet.mergeCells(1,1,1,last);sheet.getCell('A1').value='Meu dinheiro | Relatório de despesas';sheet.getRow(1).height=30;sheet.getCell('A1').font={size:16,bold:true,color:{argb:'FF17365D'}};sheet.mergeCells(2,1,2,last);sheet.getCell('A2').value=`${report.period} | Pessoa: ${report.person} | ${report.grouping}`;sheet.getRow(2).height=32;sheet.getCell('A2').alignment={wrapText:true,vertical:'middle'};};
+ const title=(sheet,last)=>{sheet.mergeCells(1,1,1,last);sheet.getCell('A1').value='Meu dinheiro | Relatório de despesas';sheet.getRow(1).height=30;sheet.getCell('A1').font={size:16,bold:true,color:{argb:'FF17365D'}};sheet.mergeCells(2,1,2,last);sheet.getCell('A2').value=reportFilters(report);sheet.getRow(2).height=report.cardLabel?64:32;sheet.getCell('A2').alignment={wrapText:true,vertical:'middle'};};
  title(summary,2);title(items,9);
  items.getRow(4).values=['Grupo','Data / competência','Descrição','Pessoa / parte','Cartão / banco','Categoria','Parcela','Situação','Valor (R$)'];
  const ranges=new Map();
@@ -41,7 +43,7 @@ export function pdfReport(report,JsPDF){
  const clean=v=>String(v??'').replace(/[\u0000-\u001f]/g,' ').replace(/[\u2010-\u2015]/g,'-');
  const wrap=(text,w,size=9,bold=false)=>{doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(size);return doc.splitTextToSize(clean(text),w);};
  const text=(lines,x,top,size=9,bold=false,color=[35,45,60],options={})=>{doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(size);doc.setTextColor(...color);doc.text(lines,x,top,options);};
- const header=()=>{doc.setFillColor(23,54,93);doc.rect(0,0,210,38,'F');text('Meu dinheiro | Relatório de despesas',left,15,15,true,[255,255,255]);const filters=wrap(`${report.period} | Pessoa: ${report.person} | ${report.grouping}`,width,9);text(filters,left,23,9,false,[220,232,248]);y=Math.max(47,27+filters.length*4);};
+ const header=()=>{const filters=wrap(reportFilters(report),width,9),height=Math.max(38,27+filters.length*4);doc.setFillColor(23,54,93);doc.rect(0,0,210,height,'F');text('Meu dinheiro | Relatório de despesas',left,15,15,true,[255,255,255]);text(filters,left,23,9,false,[220,232,248]);y=height+9;};
  const room=height=>{if(y+height>278){doc.addPage();header();}};
  const rule=()=>{doc.setDrawColor(220,226,234);doc.line(left,y,right,y);};
  header();text('TOTAL DO PERÍODO',left,y,9,true,[85,100,120]);text(money(report.total),right,y,16,true,[23,54,93],{align:'right'});y+=10;

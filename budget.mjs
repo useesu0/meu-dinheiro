@@ -3,6 +3,13 @@ import {buildAnalysisReport as rawReport} from './reports.mjs';
 
 const validMonth=month=>/^\d{4}-(0[1-9]|1[0-2])$/.test(month||'');
 const shift=(month,n)=>monthDate(month+'-01',n).slice(0,7);
+export function cardFilterLabel(state,card='ALL'){return card==='ALL'?'Todos os lançamentos':card==='ALL_CARDS'?'Todos os cartões':paymentName(state,card);}
+function matchesCard(state,row,card='ALL'){
+ if(card==='ALL'||!card)return true;
+ if(row.type!=='expense')return false;
+ const id=row.bankId||row.payment;
+ return card==='ALL_CARDS'?cardsForState(state,{includeArchived:true}).some(c=>c.id===id):id===card;
+}
 const credit=row=>row.type==='expense'&&!(row.origin==='source'||row.origin==='source-projection')&&
  (row.origin==='purchase'&&!['Pix','Dinheiro','VR','VA'].includes(row.payment)||row.origin==='event'&&['card','invoice','installments','agreement','settlement'].includes(row.kind));
 // Imported source rows already carry the salary/budget month. Preserve their IDs,
@@ -12,7 +19,7 @@ export function ledgerForMonth(state,month,filters={}){
  const rows=[];
  for(const ledgerMonth of [month,shift(month,1)])for(const row of rawLedger(state,ledgerMonth,filters)){
   const budgetMonth=credit(row)&&row.date?shift(row.date.slice(0,7),-1):ledgerMonth;
-  if(budgetMonth===month)rows.push({...row,ledgerMonth,budgetMonth});
+  if(budgetMonth===month&&matchesCard(state,row,filters.card))rows.push({...row,ledgerMonth,budgetMonth});
  }
  return rows.sort((a,b)=>(b.date||month+'-01').localeCompare(a.date||month+'-01'));
 }
@@ -23,14 +30,14 @@ export function monthOverview(state,month){
 function details(rows,title){const amount=historyTotal(rows);return {title,amount,rows:detailExpenseRows(rows,amount)};}
 export function cardExpenseDetails(state,month,id){return details(ledgerForMonth(state,month,{type:'expense'}).filter(r=>r.payment===id&&!['VR','VA'].includes(r.payment)),paymentName(state,id));}
 export function pixExpenseDetails(state,month){return details(ledgerForMonth(state,month,{type:'expense'}).filter(r=>r.payment==='Pix'&&!r.bankId&&(r.paymentMethod||r.method)!=='Cartão de Débito'),'Pix');}
-export function analysisGroups(state,month,mode='category',person='JEFFERSON'){
+export function analysisGroups(state,month,mode='category',person='JEFFERSON',filters={}){
  if(!['category','bank','person'].includes(mode))throw new Error('Agrupamento de análise inválido.');
- const rows=ledgerForMonth(state,month,{type:'expense',person:mode==='person'?'Todos':person}).filter(r=>!['VR','VA'].includes(r.payment));
+ const rows=ledgerForMonth(state,month,{...filters,type:'expense',person:mode==='person'?'Todos':person}).filter(r=>!['VR','VA'].includes(r.payment));
  const selected=mode==='person'?rows.flatMap(r=>Object.entries(r.shares).filter(([,amount])=>amount!==0).map(([name,amount])=>({...r,expenseCategory:r.category,category:name,analysisPerson:name,amount,originalAmount:r.isSplit?undefined:r.originalAmount}))):
  rows.filter(r=>mode!=='bank'||cardsForState(state,{includeArchived:true}).some(c=>c.id===r.payment)||r.bankId).map(r=>({...r,expenseCategory:r.category,category:mode==='bank'?r.bank:r.category,analysisPerson:!['Todos','ALL'].includes(person)?person:undefined,amount:['Todos','ALL'].includes(person)?r.amount:r.displayAmount,originalAmount:r.isSplit?undefined:r.originalAmount}));
  return groupExpenses(selected).map(g=>({...g,rows:detailExpenseRows(g.rows,g.amount)}));
 }
-export function buildAnalysisReport(state,month,mode,person){const report=rawReport(state,month,mode,person,analysisGroups(state,month,mode,person));return {...report,period:'Orçamento de '+report.period};}
+export function buildAnalysisReport(state,month,mode,person,filters={}){const report=rawReport(state,month,mode,person,analysisGroups(state,month,mode,person,filters));return {...report,period:'Orçamento de '+report.period,cardFilter:filters.card||'ALL',cardLabel:cardFilterLabel(state,filters.card)};}
 export function cardPaymentDetails(state,month,id){
  if(!validMonth(month)||!cardsForState(state,{includeArchived:true}).some(c=>c.id===id))throw new Error('Confira o cartão e o mês selecionados.');
  const detail=cardExpenseDetails(state,month,id),pending=detail.rows.filter(r=>r.detailAmount>0&&!['paid','covered','void'].includes(r.status)&&r.sourceStatus!=='Pago'),payments=paymentsForRows(state,pending),groups=new Map();

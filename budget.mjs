@@ -1,6 +1,6 @@
 import {ledgerForMonth as rawLedger,monthOverview as rawOverview,payExpenses as rawPay,monthDate,todayBR,historyTotal,groupExpenses,cardsForState,paymentName,paymentsForRows,outstandingAmount,sourceIncludedAmount,detailExpenseRows} from './finance.mjs';
 import {buildAnalysisReport as rawReport} from './reports.mjs';
-import {isPayrollLoan,itemPaidTotal,previousDay} from './finance.mjs';
+import {isPayrollLoan,itemPaidTotal} from './finance.mjs';
 
 const validMonth=month=>/^\d{4}-(0[1-9]|1[0-2])$/.test(month||'');
 const shift=(month,n)=>monthDate(month+'-01',n).slice(0,7);
@@ -63,10 +63,11 @@ export function payCard(state,month,id,date=todayBR()){
 }
 export function pendingExpensesForMonth(state,month,today=todayBR()){
  if(!validMonth(month))throw new Error('Selecione um mês de orçamento válido.');
- const cards=new Set(cardsForState(state,{includeArchived:true}).map(c=>c.id)),end=previousDay(monthDate(month+'-01',1)),cardEnd=previousDay(monthDate(month+'-01',2));
+ const cards=new Set(cardsForState(state,{includeArchived:true}).map(c=>c.id));
  const rows=state.events.filter(e=>e.direction==='out'&&['planned','deferred'].includes(e.status)&&!isPayrollLoan(e)&&!['VR','VA'].includes(e.account)).flatMap(e=>{
   const card=cards.has(e.account)&&['card','invoice','installments','agreement','settlement'].includes(e.kind);
-  if(e.status!=='deferred'&&e.date&&e.date>(card?cardEnd:end))return [];
+  const budgetMonth=e.date?(card?monthDate(e.date,-1).slice(0,7):e.date.slice(0,7)):e.month;
+  if(budgetMonth!==month)return [];
   const amount=outstandingAmount(e,state);if(amount<=0)return [];
   return [{...e,amount,fullAmount:e.amount,partialPaid:itemPaidTotal(e),card,overdue:!!e.date&&e.date<today}];
  }).sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999')||a.description.localeCompare(b.description));
